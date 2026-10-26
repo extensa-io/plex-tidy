@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { lstat, realpath, rename } from 'node:fs/promises';
+import { realpath, rename } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { AppError, nodeErrorCode } from '../errors.ts';
+import { pathExists } from './exists.ts';
 import { checkPathLength, isInsideRoot, sameVolume } from './path-checks.ts';
 import { isSanitized } from './sanitize.ts';
 
@@ -48,7 +49,7 @@ export async function safeRename(root: string, from: string, to: string): Promis
 
   // Node's rename replaces an existing file on Windows, so check first. This
   // leaves a short race window, which is acceptable for a single-user tool.
-  if (await exists(destination)) {
+  if (await pathExists(destination)) {
     throw new AppError('DESTINATION_EXISTS', 'A destination already exists.');
   }
   await renameOrFail(source, destination);
@@ -58,7 +59,7 @@ export async function safeRename(root: string, from: string, to: string): Promis
 /** The filesystem is case-insensitive, so a case-only rename goes through a temporary name. */
 async function renameCaseOnly(source: string, destination: string): Promise<void> {
   const temp = join(dirname(source), `.plex-tidy-${randomBytes(6).toString('hex')}.tmp`);
-  if (await exists(temp)) {
+  if (await pathExists(temp)) {
     throw new AppError('DESTINATION_EXISTS', 'A temporary rename name is already in use.');
   }
   await renameOrFail(source, temp);
@@ -104,19 +105,7 @@ async function requireExists(
   code: 'SOURCE_MISSING' | 'DESTINATION_PARENT_MISSING',
   message: string,
 ): Promise<void> {
-  if (!(await exists(path))) {
+  if (!(await pathExists(path))) {
     throw new AppError(code, message);
-  }
-}
-
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path);
-    return true;
-  } catch (error) {
-    if (nodeErrorCode(error) === 'ENOENT') {
-      return false;
-    }
-    throw new AppError('RENAME_FAILED', 'A rename path could not be checked.', { cause: error });
   }
 }

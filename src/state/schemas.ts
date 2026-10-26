@@ -29,8 +29,22 @@ export const journalDoneSchema = z.object({
   at: z.iso.datetime(),
 });
 
-export const journalRecordSchema = z.discriminatedUnion('kind', [journalIntentSchema, journalDoneSchema]);
+/** Closes an intent that reconciliation found never started, so it stops being reported. */
+export const journalVoidSchema = z.object({
+  schemaVersion: z.literal(JOURNAL_SCHEMA_VERSION),
+  kind: z.literal('void'),
+  id: z.uuid(),
+  at: z.iso.datetime(),
+  reason: z.string().min(1),
+});
+
+export const journalRecordSchema = z.discriminatedUnion('kind', [
+  journalIntentSchema,
+  journalDoneSchema,
+  journalVoidSchema,
+]);
 
 export type JournalIntent = z.infer<typeof journalIntentSchema>;
 export type JournalDone = z.infer<typeof journalDoneSchema>;
+export type JournalVoid = z.infer<typeof journalVoidSchema>;
 export type JournalRecord = z.infer<typeof journalRecordSchema>;

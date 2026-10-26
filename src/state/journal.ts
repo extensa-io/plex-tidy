@@ -8,6 +8,7 @@ import {
   type JournalDone,
   type JournalIntent,
   type JournalRecord,
+  type JournalVoid,
 } from './schemas.ts';
 
 export interface JournalContents {
@@ -27,6 +28,7 @@ export interface Journal {
   readonly file: string;
   appendIntent(action: string, data: Record<string, unknown>): Promise<JournalIntent>;
   appendDone(intent: JournalIntent): Promise<JournalDone>;
+  appendVoid(intent: JournalIntent, reason: string): Promise<JournalVoid>;
   read(): Promise<JournalContents>;
   unmatchedIntents(): Promise<JournalIntent[]>;
   /** Checks each intent that has no `done` record against the real filesystem. */
@@ -38,8 +40,8 @@ export function openJournal(file: string): Journal {
 
   const unmatchedIntents = async (): Promise<JournalIntent[]> => {
     const { records } = await read();
-    const doneIds = new Set(records.filter((record) => record.kind === 'done').map((record) => record.id));
-    return records.filter((record): record is JournalIntent => record.kind === 'intent' && !doneIds.has(record.id));
+    const closedIds = new Set(records.filter((record) => record.kind !== 'intent').map((record) => record.id));
+    return records.filter((record): record is JournalIntent => record.kind === 'intent' && !closedIds.has(record.id));
   };
 
   return {
@@ -65,6 +67,17 @@ export function openJournal(file: string): Journal {
       };
       await appendRecord(file, done);
       return done;
+    },
+    async appendVoid(intent, reason) {
+      const voided: JournalVoid = {
+        schemaVersion: JOURNAL_SCHEMA_VERSION,
+        kind: 'void',
+        id: intent.id,
+        at: new Date().toISOString(),
+        reason,
+      };
+      await appendRecord(file, voided);
+      return voided;
     },
     read,
     unmatchedIntents,

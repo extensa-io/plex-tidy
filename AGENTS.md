@@ -63,6 +63,8 @@ plex-tidy/
   state/              runtime state (gitignored)
   src/
     cli.ts            command registry and entry point
+    cli-types.ts      registry and context types shared by cli.ts and commands/
+    commands/         one file per mode wiring options to the pipeline stages
     config.ts  env.ts  errors.ts  logger.ts
     state/            atomic JSON, JSONL journal, state paths
     fs-win/           name sanitizing, path checks, safe rename
@@ -74,7 +76,7 @@ plex-tidy/
     tmdb/             TMDB client and cache
     plan/             plan building and plan schema
     review/           interactive review
-    apply/            rename execution
+    apply/            rename execution, preflight, journal reconciliation
     tag/              tag record schema and writers
     undo/             journal replay
   tests/              unit tests and synthetic fixtures

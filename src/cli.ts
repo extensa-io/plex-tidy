@@ -1,33 +1,13 @@
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
+import type { CliContext, CommandRegistry, TopLevelCommand } from './cli-types.ts';
+import { localCommands } from './commands/local.ts';
 import { isAppError } from './errors.ts';
-import { createLogger, type Logger } from './logger.ts';
-import { modeSchema, type Mode } from './state/schemas.ts';
+import { createLogger } from './logger.ts';
+import { modeSchema } from './state/schemas.ts';
 import { doctorHasProblems, formatDoctorReport, runDoctor } from './tools/doctor.ts';
 
-export interface CliContext {
-  logger: Logger;
-}
-
-/** A command that stands alone, such as `doctor`. */
-export interface TopLevelCommand {
-  name: string;
-  description: string;
-  register: (command: Command, context: CliContext) => void;
-}
-
-/** A command that runs under a mode, such as `local scan`. */
-export interface ModeCommand {
-  name: string;
-  description: string;
-  modes: readonly Mode[];
-  register: (command: Command, mode: Mode, context: CliContext) => void;
-}
-
-export interface CommandRegistry {
-  topLevel: readonly TopLevelCommand[];
-  mode: readonly ModeCommand[];
-}
+export type { CliContext, CommandRegistry, ModeCommand, TopLevelCommand } from './cli-types.ts';
 
 const doctorCommand: TopLevelCommand = {
   name: 'doctor',
@@ -48,7 +28,7 @@ const doctorCommand: TopLevelCommand = {
 // Later phases add their commands here.
 export const commandRegistry: CommandRegistry = {
   topLevel: [doctorCommand],
-  mode: [],
+  mode: [...localCommands],
 };
 
 export function buildProgram(context: CliContext, registry: CommandRegistry = commandRegistry): Command {

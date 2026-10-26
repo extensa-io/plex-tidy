@@ -16,6 +16,12 @@ export const errorCodes = [
   'TOOL_NOT_FOUND',
   'TOOL_FAILED',
   'TOOL_OUTPUT_INVALID',
+  'ROOT_INVALID',
+  'OPTION_INVALID',
+  'STAGE_MISSING',
+  'STAGE_STALE',
+  'PREFLIGHT_FAILED',
+  'ENTRY_NOT_FOUND',
 ] as const;
 
 export type ErrorCode = (typeof errorCodes)[number];
