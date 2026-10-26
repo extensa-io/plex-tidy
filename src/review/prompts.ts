@@ -7,7 +7,7 @@ export function createTerminalIO(): ReviewIO {
     print: (line) => {
       console.log(line);
     },
-    confirm: (message) => confirm({ message, default: false }),
+    confirm: (message, defaultYes = false) => confirm({ message, default: defaultYes }),
     choose: (message, choices) =>
       select({ message, choices: choices.map((choice) => ({ value: choice.value, name: choice.label })) }),
     ask: (message) => input({ message }),

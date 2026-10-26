@@ -7,7 +7,7 @@ import { useTempDirs } from '../helpers/temp-dir.ts';
 const makeTempDir = useTempDirs();
 
 async function journalFile(): Promise<string> {
-  return join(await makeTempDir(), 'local', 'abc123', 'journal.jsonl');
+  return join(await makeTempDir(), 'videos', 'abc123', 'journal.jsonl');
 }
 
 describe('journal', () => {

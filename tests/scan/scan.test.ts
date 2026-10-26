@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { fileId, scanRoot, summarizeScan } from '../../src/scan/scan.ts';
 import { scanSchema } from '../../src/scan/schemas.ts';
-import { libraryTree, libraryTreeCounts } from '../fixtures/local-corpus.ts';
+import { libraryTree, libraryTreeCounts } from '../fixtures/videos-corpus.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
 import { createTree } from '../helpers/tree.ts';
 

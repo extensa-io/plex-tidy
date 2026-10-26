@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCasing, smallWords } from '../../src/parse/casing.ts';
 import { cleanerRules, cleanText, isReleaseTag } from '../../src/parse/cleaner.ts';
-import { cleanerCases, idempotenceExtras, titledStems, untitledStems } from '../fixtures/local-corpus.ts';
+import { cleanerCases, idempotenceExtras, titledStems, untitledStems } from '../fixtures/videos-corpus.ts';
 
 describe('cleanText', () => {
   it.each(cleanerCases)('$label', ({ input, expected }) => {
@@ -56,6 +56,10 @@ describe('applyCasing', () => {
   it('keeps small words lower inside a title, in English and Spanish', () => {
     expect(applyCasing('el hombre de la casa y el perro')).toBe('El Hombre de la Casa y el Perro');
     expect(applyCasing('lord of the samples')).toBe('Lord of the Samples');
+  });
+
+  it('capitalizes "sin", which is also an English word', () => {
+    expect(applyCasing('sample sin and sample')).toBe('Sample Sin and Sample');
   });
 
   it('does nothing to text without letters', () => {

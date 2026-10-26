@@ -13,7 +13,7 @@ export interface TopLevelCommand {
   register: (command: Command, context: CliContext) => void;
 }
 
-/** A command that runs under a mode, such as `local scan`. */
+/** A command that runs under a mode, such as `videos scan`. */
 export interface ModeCommand {
   name: string;
   description: string;

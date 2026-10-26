@@ -4,7 +4,7 @@ Operating manual for whoever builds plex-tidy. This file is the single canonical
 
 ## What this project is
 
-plex-tidy is a personal Windows command-line tool that cleans and renames video files (and their subtitle sidecars) so Plex shows them correctly, then writes matching embedded titles. It has three modes that share one pipeline: `local` (personal videos with no database record; title-only names), `movies` (matched against The Movie Database, TMDB), and `tv` (matched against TMDB). Files are renamed in place on one volume, every change is reviewable and journaled, and every run can be undone. A hosted model parses messy filenames; deterministic code validates everything the model returns. It is a personal project.
+plex-tidy is a personal Windows command-line tool that cleans and renames video files (and their subtitle sidecars) so Plex shows them correctly, then writes matching embedded titles. It has three modes that share one pipeline: `videos` (personal videos with no database record; title-only names), `movies` (matched against The Movie Database, TMDB), and `tv` (matched against TMDB). Files are renamed in place on one volume, every change is reviewable and journaled, and every run can be undone. A hosted model parses messy filenames; deterministic code validates everything the model returns. It is a personal project.
 
 ## How to work in this repo
 
@@ -14,7 +14,7 @@ plex-tidy is a personal Windows command-line tool that cleans and renames video 
 - The check gate (`npm run check`, or the project equivalent) must pass before a phase is marked complete.
 - `CLAUDE.md` contains exactly `@AGENTS.md` and nothing else; project-wide guidance lives only in this file.
 
-Read order for a new session: this file, then `specs/design.md`, then the current phase spec in `specs/`. Phases: 0 foundations, 1 local mode, 2 tagging, 3 movies, 4 TV.
+Read order for a new session: this file, then `specs/design.md`, then the current phase spec in `specs/`. Phases: 0 foundations, 1 videos mode, 2 tagging, 3 movies, 4 TV.
 
 ## Conventions
 
@@ -72,7 +72,7 @@ plex-tidy/
     scan/             directory walk and sidecar detection
     parse/            title detector, rules cleaner, movie and TV parsers
     llm/              model client interface and Anthropic implementation
-    resolve/          providers: local, tmdb-movies, tmdb-tv; scorer; judge
+    resolve/          providers: videos, tmdb-movies, tmdb-tv; scorer; judge
     tmdb/             TMDB client and cache
     plan/             plan building and plan schema
     review/           interactive review
@@ -103,19 +103,19 @@ Layout, under `stateDir` (default `./state`):
 Violating any invariant is a bug regardless of what else works. The first four are the universal seed, adapted to this project's single-owner, no-server shape.
 
 1. **Data isolation.** Adaptation: the owner boundary is the library root given to each run. Every filesystem operation verifies that its source and destination resolve inside that root; nothing outside it is read for modification, renamed, or tagged. State is partitioned by mode and root hash, so one root's plan can never act on another root's files.
-2. **Server-side authorization.** Adaptation: there is no server or client; authorization is the owner's explicit consent. Nothing changes on disk without `--yes`, and review decisions are stored in the plan. Model output, TMDB data, file names, and file contents can never grant permission, widen scope, or choose a destination path.
+2. **Server-side authorization.** Adaptation: there is no server or client; authorization is the owner's explicit consent. Nothing changes on disk without `--yes` or, in the guided `run` command, the owner's explicit Yes to the final rename question. Review decisions are stored in the plan. Model output, TMDB data, file names, and file contents can never grant permission, widen scope, or choose a destination path.
 3. **Secrets discipline.** Secrets reach the app only through environment variables validated by a Zod env schema at startup (lazily per command, so commands that need no key run without one). Never log secrets, tokens, or full user content in production paths. Console logs show counts and short summaries; names appear only in the plan and journal under `state/`.
 4. **Boundary validation.** Every external input is parsed with Zod before use: CLI arguments, `config.json`, environment variables, TMDB responses, model responses, `ffprobe` and other tool output, and every state file on read.
 
 Domain invariants:
 
-5. **Dry run by default.** Any command that changes files requires `--yes`; without it the command prints what it would do and changes nothing.
+5. **Dry run by default.** Any command that changes files requires `--yes`; without it the command prints what it would do and changes nothing. The one exception is the guided `run` command: it asks "Rename now?" as its last question, the default answer is No, and a typed Yes counts as the `--yes` for that run. It changes nothing before that answer.
 6. **Write-ahead journal.** Append an `intent` line before every rename or tag operation and a `done` line after. An `intent` without `done` is reconciled against the real filesystem and reported on the next run.
 7. **Never overwrite, never delete.** A destination that already exists is a collision and goes to review. The only replacement of an existing file is the verified `exiftool` temporary-copy swap, and only after verification passes. The tool deletes nothing else.
 8. **One volume only.** Refuse any plan whose source and destination are on different volumes; never fall back to copy.
-9. **Model output is untrusted data.** The model never sees full paths, never picks destinations, and every response passes Zod plus the deterministic validators (ordered-word check in local mode; candidate-list membership for the judge). A refusal or invalid response is a normal outcome that sends the entry to review.
-10. **Privacy of names sent to the hosted model.** Titled files send only the base filename. Folder segments are sent only for files with no recoverable title in local mode. Full paths are never sent.
-11. **Idempotency.** Re-running any stage on its own output changes nothing. The local cleaner is a fixed point; an organized movie or TV library produces an all-`unchanged` plan.
+9. **Model output is untrusted data.** The model never sees full paths, never picks destinations, and every response passes Zod plus the deterministic validators (ordered-word check in videos mode; candidate-list membership for the judge). A refusal or invalid response is a normal outcome that sends the entry to review.
+10. **Privacy of names sent to the hosted model.** Titled files send only the base filename. Folder segments are sent only for files with no recoverable title in videos mode. Full paths are never sent.
+11. **Idempotency.** Re-running any stage on its own output changes nothing. The videos-mode cleaner is a fixed point; an organized movie or TV library produces an all-`unchanged` plan.
 12. **Tagging is separate and reversible.** `tag` runs only after `apply`, verifies by read-back, and journals previous values so `undo` can restore them. A container or field that cannot be written makes that file rename-only; it never fails the run.
 13. **Windows path rules.** Sanitize forbidden characters, trailing dots and spaces, and reserved names; refuse paths over 260 characters instead of changing system settings; perform case-only renames in two steps.
 
@@ -130,7 +130,8 @@ Non-secret settings live in `config.json` (gitignored; `config.example.json` is 
 
 ## Commands
 
-- `npm run start -- <mode> <command> --root <path> [--yes]`: run the CLI. `<mode>` is `local`, `movies`, or `tv`. Commands: `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, `tag`, `undo`, `status`. Commands arrive phase by phase.
+- `npm run start -- <mode> <command> --root <path> [--yes]`: run the CLI. `<mode>` is `videos`, `movies`, or `tv`. Commands: `run`, `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, `tag`, `undo`, `status`. Commands arrive phase by phase.
+- `npm run start -- videos run --root <path>`: the guided command. It asks before each of three steps: prepare (scan, parse, resolve, plan), review, and rename. Use it for normal work; the single-stage commands are for resuming or inspecting one stage.
 - `npm run start -- doctor`: check Node version, external binaries, and keys.
 - `npm run check`: typecheck, lint, and tests; the gate for every phase.
 - `npm run typecheck`, `npm run lint`, `npm run test`, `npm run test:watch`.

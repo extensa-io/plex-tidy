@@ -1,9 +1,9 @@
 import { memoryParseCache } from '../../src/llm/title-parser.ts';
-import { parseLocal } from '../../src/parse/local.ts';
+import { parseVideos } from '../../src/parse/videos.ts';
 import { buildPlan } from '../../src/plan/build.ts';
 import type { Plan } from '../../src/plan/schemas.ts';
 import { pathExists } from '../../src/fs-win/exists.ts';
-import { resolveLocal } from '../../src/resolve/local.ts';
+import { resolveVideos } from '../../src/resolve/videos.ts';
 import { RESOLVE_SCHEMA_VERSION, type ResolveFile } from '../../src/resolve/schemas.ts';
 import { scanRoot } from '../../src/scan/scan.ts';
 import type { Scan } from '../../src/scan/schemas.ts';
@@ -11,7 +11,7 @@ import { createStubModel, type StubModelOptions } from './stub-model.ts';
 
 /** Runs parse and resolve for a scan with a stub model. */
 export async function resolveScan(scan: Scan, options: StubModelOptions = {}): Promise<ResolveFile> {
-  const { entries } = await parseLocal(scan, {
+  const { entries } = await parseVideos(scan, {
     model: createStubModel(options),
     cache: memoryParseCache(),
     batchSize: 50,
@@ -25,7 +25,7 @@ export async function resolveScan(scan: Scan, options: StubModelOptions = {}): P
       if (file === undefined) {
         throw new Error('scan and parse results disagree');
       }
-      return { ...entry, resolution: resolveLocal(file, entry.parse) };
+      return { ...entry, resolution: resolveVideos(file, entry.parse) };
     }),
   };
 }

@@ -1,7 +1,7 @@
 import type { TitleBatch } from './model-client.ts';
 
 /** Bump when a prompt changes. The parse cache key includes it. */
-export const PARSE_PROMPT_VERSION = 'local-v1';
+export const PARSE_PROMPT_VERSION = 'videos-v1';
 
 export const TITLE_TOOL_NAME = 'report_titles';
 

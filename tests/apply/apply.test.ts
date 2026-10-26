@@ -7,7 +7,7 @@ import { pathExists } from '../../src/fs-win/exists.ts';
 import type { Plan } from '../../src/plan/schemas.ts';
 import { openJournal } from '../../src/state/journal.ts';
 import { markUndone, planUndo, undoRenames } from '../../src/undo/undo.ts';
-import { libraryTree } from '../fixtures/local-corpus.ts';
+import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { approveAll, planFor } from '../helpers/pipeline.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
 import { createTree, listTree } from '../helpers/tree.ts';

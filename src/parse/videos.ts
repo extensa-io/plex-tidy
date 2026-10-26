@@ -12,13 +12,13 @@ export function sourcesFor(file: ScanFile): string[] {
   return file.titled ? [file.stem] : file.folders.slice(0, MAX_FOLDER_SOURCES);
 }
 
-export interface ParseLocalOptions {
+export interface ParseVideosOptions {
   model: TitleModel;
   cache: ParseCache;
   batchSize: number;
 }
 
-export interface ParseLocalOutput {
+export interface ParseVideosOutput {
   entries: ResolveEntry[];
   stats: ParseStats;
   outcomes: Record<ParseResult['outcome'], number>;
@@ -28,7 +28,7 @@ export interface ParseLocalOutput {
  * Asks the model for a title per file. A titled file sends only its base
  * filename. A file with no title sends its folder names. Nothing else is sent.
  */
-export async function parseLocal(scan: Scan, options: ParseLocalOptions): Promise<ParseLocalOutput> {
+export async function parseVideos(scan: Scan, options: ParseVideosOptions): Promise<ParseVideosOutput> {
   const inputs: TitleInput[] = [];
   for (const file of scan.files) {
     const sources = sourcesFor(file);
@@ -39,7 +39,7 @@ export async function parseLocal(scan: Scan, options: ParseLocalOptions): Promis
 
   const { answers, stats } = await proposeTitles(inputs, options);
 
-  const outcomes: ParseLocalOutput['outcomes'] = { valid: 0, invalid: 0, 'no-result': 0, 'no-source': 0 };
+  const outcomes: ParseVideosOutput['outcomes'] = { valid: 0, invalid: 0, 'no-result': 0, 'no-source': 0 };
   const entries = scan.files.map((file): ResolveEntry => {
     const parse = parseResultFor(file, answers.get(file.id));
     outcomes[parse.outcome] += 1;

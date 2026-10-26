@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const modeSchema = z.enum(['local', 'movies', 'tv']);
+export const modeSchema = z.enum(['videos', 'movies', 'tv']);
 export type Mode = z.infer<typeof modeSchema>;
 
 /** Builds a state file schema that carries a fixed `schemaVersion`. */

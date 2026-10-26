@@ -1,7 +1,7 @@
 import { sanitizeName } from '../fs-win/sanitize.ts';
 import { applyCasing } from '../parse/casing.ts';
 import { cleanText } from '../parse/cleaner.ts';
-import { sourcesFor } from '../parse/local.ts';
+import { sourcesFor } from '../parse/videos.ts';
 import type { ScanFile } from '../scan/schemas.ts';
 import type { ParseResult, Resolution } from './schemas.ts';
 
@@ -32,11 +32,11 @@ const fallbackReasons: Record<Exclude<ParseResult['outcome'], 'valid'>, string> 
 };
 
 /**
- * The local provider. The title comes from the file name first, then from a
+ * The videos provider. The title comes from the file name first, then from a
  * folder. When the model gave nothing usable, the rules-only cleaner runs on
  * the same source text and the entry is marked low confidence.
  */
-export function resolveLocal(file: ScanFile, parse: ParseResult): Resolution {
+export function resolveVideos(file: ScanFile, parse: ParseResult): Resolution {
   if (parse.outcome === 'valid' && parse.title !== null) {
     const sourceText = sourcesFor(file)[parse.sourceIndex ?? 0] ?? '';
     const title = finalizeModelTitle(parse.title, sourceText);

@@ -7,7 +7,7 @@ import { applyManualTitle } from '../../src/plan/edit.ts';
 import { planSchema } from '../../src/plan/schemas.ts';
 import { summarizePlan } from '../../src/plan/status.ts';
 import { scanRoot } from '../../src/scan/scan.ts';
-import { libraryTree } from '../fixtures/local-corpus.ts';
+import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { planFor, resolveScan } from '../helpers/pipeline.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
 import { createTree } from '../helpers/tree.ts';

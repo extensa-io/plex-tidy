@@ -14,7 +14,8 @@ export interface Choice {
 /** The terminal, behind an interface so tests can script the answers. */
 export interface ReviewIO {
   print(line: string): void;
-  confirm(message: string): Promise<boolean>;
+  /** `defaultYes` is the answer when the owner just presses Enter. */
+  confirm(message: string, defaultYes?: boolean): Promise<boolean>;
   choose(message: string, choices: readonly Choice[]): Promise<string>;
   ask(message: string): Promise<string>;
 }
@@ -53,7 +54,10 @@ export async function runReview(initial: Plan, deps: ReviewDeps): Promise<Review
 
   const bulk = summary.plan.entries.filter(isBulkApprovable);
   if (bulk.length > 0) {
-    io.print(`${bulk.length} entries have a title from the file name, passed the word check, and collide with nothing.`);
+    io.print(`${bulk.length} entries have a title from the file name, passed the word check, and collide with nothing:`);
+    for (const entry of bulk) {
+      io.print(`  ${win32.basename(entry.source)}  ->  ${win32.basename(entry.target)}`);
+    }
     if (await io.confirm(`Approve all ${bulk.length} of them?`)) {
       const ids = new Set(bulk.map((entry) => entry.id));
       summary.plan = {

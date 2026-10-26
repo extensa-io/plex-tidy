@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import type { CliContext, CommandRegistry, TopLevelCommand } from './cli-types.ts';
-import { localCommands } from './commands/local.ts';
+import { videosCommands } from './commands/videos.ts';
 import { isAppError } from './errors.ts';
 import { createLogger } from './logger.ts';
 import { modeSchema } from './state/schemas.ts';
@@ -28,7 +28,7 @@ const doctorCommand: TopLevelCommand = {
 // Later phases add their commands here.
 export const commandRegistry: CommandRegistry = {
   topLevel: [doctorCommand],
-  mode: [...localCommands],
+  mode: [...videosCommands],
 };
 
 export function buildProgram(context: CliContext, registry: CommandRegistry = commandRegistry): Command {
@@ -59,6 +59,11 @@ export async function main(argv: readonly string[]): Promise<number> {
     await buildProgram({ logger }).parseAsync([...argv]);
     return typeof process.exitCode === 'number' ? process.exitCode : 0;
   } catch (error) {
+    if (error instanceof Error && error.name === 'ExitPromptError') {
+      // The owner pressed Ctrl+C at a prompt. Every decision is saved as it is made.
+      logger.info('Stopped. Decisions already made are saved.');
+      return 130;
+    }
     if (isAppError(error)) {
       logger.error(`error: ${error.message} (${error.code})`);
     } else {

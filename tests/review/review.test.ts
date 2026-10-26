@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { pathExists } from '../../src/fs-win/exists.ts';
 import type { Plan } from '../../src/plan/schemas.ts';
 import { isBulkApprovable, runReview, type Choice, type ReviewIO } from '../../src/review/review.ts';
-import { libraryTree } from '../fixtures/local-corpus.ts';
+import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { planFor } from '../helpers/pipeline.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
 import { createTree } from '../helpers/tree.ts';
@@ -71,6 +71,16 @@ describe('runReview', () => {
     expect(summary).toMatchObject({ bulkApproved: 3, accepted: 2, skipped: 1 });
     expect(summary.plan.entries.filter((entry) => entry.status === 'approved')).toHaveLength(5);
     expect(saved.length).toBe(4);
+  });
+
+  it('lists every old and new name of the bulk group before asking', async () => {
+    const { plan, deps } = await setup(libraryTree);
+    const { io, printed } = scriptedIO({ confirm: [false], choose: ['quit'] });
+    await runReview(plan, { ...deps, io });
+    expect(printed).toContain('  SAMPLE FILM TWO.mkv  ->  Sample Film Two.mkv');
+    expect(printed).toContain('  sample_film_three_720p.mp4  ->  Sample Film Three.mp4');
+    expect(printed).toContain('  [Group] Sample Film Four [1080p].mkv  ->  Sample Film Four.mkv');
+    expect(printed.filter((line) => line.includes('  ->  '))).toHaveLength(3);
   });
 
   it('leaves the bulk group pending when the owner declines', async () => {

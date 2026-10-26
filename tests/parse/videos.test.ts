@@ -1,11 +1,11 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { memoryParseCache } from '../../src/llm/title-parser.ts';
-import { parseLocal } from '../../src/parse/local.ts';
-import { finalizeModelTitle, resolveLocal } from '../../src/resolve/local.ts';
+import { parseVideos } from '../../src/parse/videos.ts';
+import { finalizeModelTitle, resolveVideos } from '../../src/resolve/videos.ts';
 import { scanRoot } from '../../src/scan/scan.ts';
 import type { Scan } from '../../src/scan/schemas.ts';
-import { libraryTree } from '../fixtures/local-corpus.ts';
+import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { createStubModel, type StubModelOptions } from '../helpers/stub-model.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
 import { createTree } from '../helpers/tree.ts';
@@ -20,11 +20,11 @@ async function scanned(): Promise<{ root: string; scan: Scan }> {
 
 async function parseWith(scan: Scan, options: StubModelOptions = {}) {
   const model = createStubModel(options);
-  const result = await parseLocal(scan, { model, cache: memoryParseCache(), batchSize: 50 });
+  const result = await parseVideos(scan, { model, cache: memoryParseCache(), batchSize: 50 });
   return { model, ...result };
 }
 
-describe('parseLocal', () => {
+describe('parseVideos', () => {
   it('sends a titled file as its base filename only, and an untitled file as its folder names', async () => {
     const { scan } = await scanned();
     const { model } = await parseWith(scan);
@@ -89,7 +89,7 @@ describe('parseLocal', () => {
   });
 });
 
-describe('resolveLocal', () => {
+describe('resolveVideos', () => {
   it('uses a valid file name title with high confidence', async () => {
     const { scan } = await scanned();
     const { entries } = await parseWith(scan);
@@ -98,7 +98,7 @@ describe('resolveLocal', () => {
     if (file === undefined || parse === undefined) {
       throw new Error('fixture missing');
     }
-    expect(resolveLocal(file, parse)).toMatchObject({ title: 'Sample Film Two', source: 'filename', confidence: 'high' });
+    expect(resolveVideos(file, parse)).toMatchObject({ title: 'Sample Film Two', source: 'filename', confidence: 'high' });
   });
 
   it('uses a valid folder title with high confidence for a file with no title', async () => {
@@ -109,7 +109,7 @@ describe('resolveLocal', () => {
     if (file === undefined || parse === undefined) {
       throw new Error('fixture missing');
     }
-    expect(resolveLocal(file, parse)).toMatchObject({ title: 'Beach Day', source: 'folder', confidence: 'high' });
+    expect(resolveVideos(file, parse)).toMatchObject({ title: 'Beach Day', source: 'folder', confidence: 'high' });
   });
 
   it.each(['refused', 'failed', 'invalid'] as const)(
@@ -122,7 +122,7 @@ describe('resolveLocal', () => {
         if (parse === undefined) {
           throw new Error('missing parse');
         }
-        return { file, resolution: resolveLocal(file, parse) };
+        return { file, resolution: resolveVideos(file, parse) };
       });
 
       const titledFile = resolved.find((item) => item.file.stem === 'SAMPLE FILM TWO');
@@ -140,7 +140,7 @@ describe('resolveLocal', () => {
     if (file === undefined) {
       throw new Error('fixture missing');
     }
-    const resolution = resolveLocal(file, { kind: 'filename', outcome: 'valid', title: 'Sample: Film?', sourceIndex: 0 });
+    const resolution = resolveVideos(file, { kind: 'filename', outcome: 'valid', title: 'Sample: Film?', sourceIndex: 0 });
     expect(resolution.title).toBe('Sample - Film');
   });
 });

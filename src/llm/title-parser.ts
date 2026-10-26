@@ -6,7 +6,7 @@ import { PARSE_PROMPT_VERSION } from './prompts.ts';
 import { PARSE_CACHE_SCHEMA_VERSION, parseCacheSchema, type ParseCacheFile, type TitleKind } from './schemas.ts';
 
 const MODEL_CONCURRENCY = 3;
-const CACHE_MODE = 'local';
+const CACHE_MODE = 'videos';
 
 export interface ParseCache {
   get(key: string): { title: string | null } | undefined;

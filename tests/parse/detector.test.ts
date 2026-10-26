@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { detectTitle } from '../../src/parse/detector.ts';
-import { titledStems, untitledStems } from '../fixtures/local-corpus.ts';
+import { titledStems, untitledStems } from '../fixtures/videos-corpus.ts';
 
 describe('detectTitle', () => {
   it.each(titledStems)('finds a title in %s', (stem) => {

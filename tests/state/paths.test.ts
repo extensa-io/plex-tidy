@@ -23,8 +23,8 @@ describe('normalizeRoot and rootId', () => {
 
 describe('state paths', () => {
   it('partitions root state by mode and root id', () => {
-    const paths = rootStatePaths('state', 'local', 'U:\\Videos');
-    const dir = resolve('state', 'local', rootId('U:\\Videos'));
+    const paths = rootStatePaths('state', 'videos', 'U:\\Videos');
+    const dir = resolve('state', 'videos', rootId('U:\\Videos'));
     expect(paths).toEqual({
       dir,
       scan: join(dir, 'scan.json'),
@@ -35,8 +35,8 @@ describe('state paths', () => {
   });
 
   it('keeps one root apart from another and one mode apart from another', () => {
-    expect(rootStatePaths('state', 'local', 'U:\\A').dir).not.toBe(rootStatePaths('state', 'local', 'U:\\B').dir);
-    expect(rootStatePaths('state', 'local', 'U:\\A').dir).not.toBe(rootStatePaths('state', 'movies', 'U:\\A').dir);
+    expect(rootStatePaths('state', 'videos', 'U:\\A').dir).not.toBe(rootStatePaths('state', 'videos', 'U:\\B').dir);
+    expect(rootStatePaths('state', 'videos', 'U:\\A').dir).not.toBe(rootStatePaths('state', 'movies', 'U:\\A').dir);
   });
 
   it('puts shared caches under cache', () => {

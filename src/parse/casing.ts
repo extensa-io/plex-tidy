@@ -1,4 +1,5 @@
 // Words kept in lower case inside a title, English and Spanish. The owner reviews this list.
+// A Spanish word stays off the list when it is also a common English word: "sin" is one.
 export const smallWords: ReadonlySet<string> = new Set([
   // English
   'a',
@@ -35,7 +36,6 @@ export const smallWords: ReadonlySet<string> = new Set([
   'para',
   'por',
   'que',
-  'sin',
   'u',
   'un',
   'una',

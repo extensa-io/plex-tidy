@@ -1,72 +1,11 @@
-import { access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
-import { buildProgram } from '../../src/cli.ts';
-import { createLocalCommands, type LocalDeps } from '../../src/commands/local.ts';
-import { parseConfig } from '../../src/config.ts';
-import { createLogger } from '../../src/logger.ts';
+import { describe, expect, it } from 'vitest';
 import { planSchema } from '../../src/plan/schemas.ts';
-import type { ReviewIO } from '../../src/review/review.ts';
 import { readJsonFile } from '../../src/state/json-file.ts';
-import { rootStatePaths } from '../../src/state/paths.ts';
-import { libraryTree } from '../fixtures/local-corpus.ts';
-import { createStubModel, type StubModel, type StubModelOptions } from '../helpers/stub-model.ts';
-import { useTempDirs } from '../helpers/temp-dir.ts';
+import { buildUpToPlan, exists, harness } from '../helpers/cli-harness.ts';
 import { createTree, listTree } from '../helpers/tree.ts';
 
-const makeTempDir = useTempDirs();
-
-afterEach(() => {
-  process.exitCode = undefined;
-});
-
-/** Approves every proposal and skips files that have none. */
-const approvingIO: ReviewIO = {
-  print: () => undefined,
-  confirm: () => Promise.resolve(true),
-  choose: (_message, choices) => Promise.resolve(choices.some((choice) => choice.value === 'accept') ? 'accept' : 'skip'),
-  ask: () => Promise.resolve(''),
-};
-
-async function harness(options: { model?: StubModelOptions; level?: 'info' | 'debug' } = {}) {
-  const root = await makeTempDir();
-  const stateDir = await makeTempDir();
-  await createTree(root, libraryTree);
-  const lines: string[] = [];
-  const logger = createLogger({ level: options.level ?? 'info', secrets: [], write: (_level, line) => void lines.push(line) });
-  const models: StubModel[] = [];
-  const deps: LocalDeps = {
-    loadConfig: () => Promise.resolve(parseConfig({ models: { parse: 'parse-model', judge: 'judge-model' } })),
-    createTitleModel: () => {
-      const model = createStubModel(options.model);
-      models.push(model);
-      return model;
-    },
-    createReviewIO: () => approvingIO,
-  };
-  const run = async (command: string, ...flags: string[]) => {
-    const program = buildProgram({ logger }, { topLevel: [], mode: createLocalCommands(deps) });
-    await program.parseAsync(['node', 'plex-tidy', 'local', command, '--root', root, '--state-dir', stateDir, ...flags]);
-  };
-  const paths = rootStatePaths(stateDir, 'local', root);
-  return { root, stateDir, lines, models, run, paths };
-}
-
-async function exists(path: string): Promise<boolean> {
-  return access(path).then(
-    () => true,
-    () => false,
-  );
-}
-
-async function buildUpToPlan(h: Awaited<ReturnType<typeof harness>>): Promise<void> {
-  await h.run('scan');
-  await h.run('parse');
-  await h.run('resolve');
-  await h.run('plan');
-}
-
-describe('local mode through the command line', () => {
+describe('videos mode through the command line', () => {
   it('reports counts for scan', async () => {
     const h = await harness();
     await h.run('scan');

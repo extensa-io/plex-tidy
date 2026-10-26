@@ -1,7 +1,7 @@
 import { win32 } from 'node:path';
 import { checkPathLength } from '../fs-win/path-checks.ts';
 import { sanitizeName } from '../fs-win/sanitize.ts';
-import { finalizeTitle } from '../resolve/local.ts';
+import { finalizeTitle } from '../resolve/videos.ts';
 import type { ScanFile } from '../scan/schemas.ts';
 import type { PathExists } from './build.ts';
 import type { Plan, PlanEntry } from './schemas.ts';
