@@ -1,11 +1,11 @@
 .assets
 
 # Private specs
-specs/
+/specs/
 
 # Runtime state and local settings
-state/
-config.json
+/state/
+/config.json
 .env
 
 # Dependencies and tool output

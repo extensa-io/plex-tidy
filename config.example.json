@@ -1,0 +1,11 @@
+{
+  "stateDir": "./state",
+  "models": {
+    "parse": "claude-haiku-5-5",
+    "judge": "claude-sonnet-5-5"
+  },
+  "autoApplyThreshold": 0.9,
+  "tmdbConcurrency": 4,
+  "parseBatchSize": 50,
+  "tools": {}
+}
