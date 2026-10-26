@@ -40,7 +40,7 @@ npm run start -- <mode> <command> --root <path> [options]
 ```
 
 - `npm run start --` runs the tool. The `--` passes everything after it to plex-tidy instead of to npm.
-- `<mode>` is `videos` today. `movies` and `tv` arrive in later phases.
+- `<mode>` is `videos` or `movies`. `tv` arrives in a later phase.
 - `<command>` is one of the commands below.
 
 ### Options
@@ -113,6 +113,27 @@ A file with no title found can only be edited or skipped. A line such as `low co
 
 Every title from the model must pass a check: each word of the title has to appear in the original name, in the same order, in one single source. A title that fails is rejected, and the rules-only cleaner runs on the same text instead, with low confidence.
 
+### Movies mode
+
+```
+npm run start -- movies run --root U:\Movies
+```
+
+Movies mode matches each file to a movie on TMDB and renames it into the Plex scheme. The commands are the same as in videos mode: `run`, `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, `tag`, `undo`, and `status`. `scan`, `apply`, `tag`, and `undo` work exactly as before. The rest differ:
+
+- **`parse`** reads the title, year, edition, language, and part from each file name. A clean name such as `Title (2010)` is read by a rule and costs nothing. A name that already ends in `{tmdb-123}` carries its TMDB id. Every other name goes to the model in batches. The model only reports what is written in the name, and each answer is checked: the title's words must appear in the name in order, and a year, edition, or part that is not in the name is dropped.
+- **`resolve`** reads the length and container title of each video with `ffprobe`, searches TMDB in English with the title and year, and scores each candidate from 0 to 1: 0.6 for the title, 0.25 for the year, 0.15 for the length. A year one off still counts, and a length within two minutes counts in full. A part with no data on one side counts as half. If the best score is below the threshold, `resolve` searches again without the year, and again in Spanish when the model said the title is Spanish or nothing was found. When the file name has no year, a year in a folder name such as `Title (2006)` is used. When nothing is found, `resolve` tries the title with trailing words dropped (down to two words), then the title read from the nearest folder name. Folder names are read on this machine only; they are never sent to the model. The score and the reasons are saved in `resolve.json`.
+- **The judge.** A file whose best score is below `autoApplyThreshold`, or whose best two candidates are within 0.05 of each other, goes to the judge model. It sees the base file name, the container title, the length, and the top five candidates, and returns one candidate or nothing. An answer that is not one of the candidates, a refusal, or an invalid response is treated as nothing. A pick still waits for your review. The judge never approves anything.
+- **`plan`** names each movie `Title (Year) {tmdb-id}`, using the TMDB original title made legal for Windows. The video becomes `Title (Year) {tmdb-id}.mkv`, with ` {edition-Name}` added when the file name had an edition. Subtitle files travel with the video. If the video is the only video under its folder, the folder is renamed to `Title (Year) {tmdb-id}` too. A folder with two videos, or with videos in a subfolder, keeps its name, and so does the root. Every other file in the folder is left alone.
+- **Approval.** An entry at or above the threshold with no collision is approved on its own, with a reason that starts with `auto`. A file with no match on TMDB is `skipped` with the reason `unmatched` and stays where it is. A name that already exists, a name two entries want, a name with a part marker, and a path over the limit are collisions and wait for review.
+- **`review`** shows each open entry with its TMDB candidates and their scores. You pick a candidate, search TMDB by a typed title, enter a TMDB id, or skip. Choosing a movie approves it, after the same checks as before. An entry with a collision cannot be accepted.
+- **`apply`** renames the files inside the old folder first, then the folder. `undo` reverses the folder first, then the files.
+- **`tag`** writes the title, original title, release date, synopsis, genres, director, actors, and a TMDB reference such as `movie/603` (see the table in Tagging for what each container can hold).
+
+What leaves the machine: the model sees base file names, never paths. TMDB sees titles and years. The judge sees one file name and its candidates.
+
+Run it on a copy of your files first. A second run on a library that is already organized produces a plan where every entry is `unchanged`.
+
 ### Tagging
 
 `tag` writes the title into each renamed file, so players that read embedded metadata show the clean name too. Plex ignores these tags when it matches a file, which is why tagging is a separate step after `apply`: check the renames in Plex first, then tag. It only touches files that `apply` renamed.
@@ -132,7 +153,7 @@ What `tag` does for each file:
 3. Reads the tags back and compares. For an MP4-family file this check runs twice, on the new copy and again on the uploaded copy, before the original is replaced. For a Matroska file the edit is in place, so on a mismatch the previous values are put back.
 4. Writes the `done` line. A file that fails the read-back is marked `tag-failed` and the command exits with code 1. The next run tries it again.
 
-Videos mode writes the title only. The writers also handle the fuller records that movies and TV will use: original title, release date, synopsis, genre, director, actors, a TMDB reference, show, season, episode, and air date. Fields an MP4 file has no place for are skipped, and the skipped fields are recorded.
+Videos mode writes the title only. Movies mode writes the fuller record: original title, release date, synopsis, genre, director, actors, and a TMDB reference. The writers also handle the TV fields (show, season, episode, and air date) for a later phase. Fields an MP4 file has no place for, such as the original title, are skipped, and the skipped fields are recorded.
 
 `undo` puts the previous tag values back, newest first, so tags unwind before the renames they followed. An MP4-family file is rewritten again to do that.
 
@@ -170,8 +191,8 @@ Every stage saves its result, so you can stop and continue later.
 
 | Key | Needed by |
 | --- | --- |
-| `ANTHROPIC_API_KEY` | `parse` and `run` |
-| `TMDB_READ_ACCESS_TOKEN` | `movies` and `tv`, in later phases. Use the long Read Access Token, not the short API Key. |
+| `ANTHROPIC_API_KEY` | `parse` and `run`, in `videos` and `movies`. In `movies`, `resolve` also needs it for the judge; without it the judge is skipped and those files go to review. |
+| `TMDB_READ_ACCESS_TOKEN` | `movies` `resolve`, `review`, and `run`. Use the long Read Access Token, not the short API Key. |
 
 **`config.json`** holds the settings. `config.example.json` shows every key.
 
@@ -179,9 +200,9 @@ Every stage saves its result, so you can stop and continue later.
 | --- | --- | --- |
 | `stateDir` | `./state` | Where state files go. `--state-dir` overrides it. |
 | `models.parse` | none | The model that proposes titles. |
-| `models.judge` | none | The model for picking among TMDB matches, used by `movies` and `tv` later. |
+| `models.judge` | none | The model for picking among TMDB matches, used by `movies` (and `tv` later). |
 | `parseBatchSize` | 50 | File names per model request. Allowed range is 50 to 100. |
-| `autoApplyThreshold` | 0.9 | The match score at which `movies` and `tv` approve an entry on their own. Not used by `videos`. |
+| `autoApplyThreshold` | 0.9 | The match score at which `movies` approves an entry on its own. Not used by `videos`. |
 | `tmdbConcurrency` | 4 | Parallel TMDB requests. Not used by `videos`. |
 | `tools.ffprobe`, `tools.mkvpropedit`, `tools.mkvextract`, `tools.exiftool` | found on `PATH`, then in the usual install folder | Full path to a tool that is in neither place. Used by `tag`, `undo`, and `doctor`. |
 
@@ -193,7 +214,10 @@ state/videos/<root id>/resolve.json    model answers and chosen titles
 state/videos/<root id>/plan.json       one entry per file, with its status
 state/videos/<root id>/journal.jsonl   the record of every rename and undo
 state/cache/parse-cache.json          model answers, shared by all roots
+state/cache/tmdb-cache.json           TMDB answers, shared by all roots (searches 7 days, movies 30 days)
 ```
+
+Movies mode keeps the same files under `state/movies/<root id>/`. Its `resolve.json` holds the parsed name, the probe, the scored candidates, and the choice for each file.
 
 The root id is a short hash of the root path, so each folder keeps its own state. Plan statuses are `pending`, `approved`, `rejected`, `skipped`, `applied`, and `failed`. You can open any of these files, and `plan.json` is the one to read.
 
@@ -230,4 +254,4 @@ AGENTS.md   conventions, invariants, and build instructions
 
 ## Phases
 
-The build is staged across private phase specs: foundations, videos mode, tagging, movies, and TV. Phase 0 (foundations) and Phase 1 (videos mode) are complete. Conventions and invariants live in `AGENTS.md`.
+The build is staged across private phase specs: foundations, videos mode, tagging, movies, and TV. Phase 0 (foundations), Phase 1 (videos mode), and Phase 2 (tagging) are complete. Phase 3 (movies) is complete. Conventions and invariants live in `AGENTS.md`.

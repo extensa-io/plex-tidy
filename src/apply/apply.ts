@@ -20,12 +20,26 @@ export interface PreflightProblem {
   message: string;
 }
 
-/** The renames for one entry: the video first, then each sidecar. Names that do not change are left out. */
+/**
+ * The renames for one entry: the video first, then each sidecar, then the
+ * folder. Files are renamed inside the old folder, so the folder rename is the
+ * last step and `undo` reverses it first. Names that do not change are left out.
+ */
 export function movesFor(entry: PlanEntry): Move[] {
-  return [
-    { entryId: entry.id, from: entry.source, to: entry.target },
-    ...entry.sidecars.map((sidecar) => ({ entryId: entry.id, from: sidecar.source, to: sidecar.target })),
-  ].filter((move) => move.from !== move.to);
+  const insideOldFolder = (path: string): string =>
+    entry.folder === null ? path : win32.join(entry.folder.source, win32.basename(path));
+  const moves: Move[] = [
+    { entryId: entry.id, from: entry.source, to: insideOldFolder(entry.target) },
+    ...entry.sidecars.map((sidecar) => ({
+      entryId: entry.id,
+      from: sidecar.source,
+      to: insideOldFolder(sidecar.target),
+    })),
+  ];
+  if (entry.folder !== null) {
+    moves.push({ entryId: entry.id, from: entry.folder.source, to: entry.folder.target });
+  }
+  return moves.filter((move) => move.from !== move.to);
 }
 
 export function approvedEntries(plan: Plan): PlanEntry[] {

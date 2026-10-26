@@ -62,10 +62,11 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     withYes: boolean,
     action: Action,
     addOptions?: (command: Command) => void,
+    modes: readonly Mode[] = ['videos'],
   ): ModeCommand => ({
     name,
     description,
-    modes: ['videos'],
+    modes,
     register: (command: Command, mode: Mode, cli: CliContext) => {
       addRunOptions(command, withYes);
       addOptions?.(command);
@@ -75,7 +76,17 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     },
   });
 
-  const scanCommand = modeCommand('scan', 'list video files and subtitle files under the root', false, scanStage);
+  // These commands work the same in videos and movies mode: they read the plan, not the titles.
+  const sharedModes: readonly Mode[] = ['videos', 'movies'];
+
+  const scanCommand = modeCommand(
+    'scan',
+    'list video files and subtitle files under the root',
+    false,
+    scanStage,
+    undefined,
+    sharedModes,
+  );
 
   const parseCommand = modeCommand('parse', 'ask the model for a title for each file', false, async (run) => {
     await requireState(run.paths.scan, scanSchema, 'scan');
@@ -92,7 +103,7 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     await reviewStage(run, deps.createReviewIO());
   });
 
-  const applyCommand = modeCommand('apply', 'rename the approved files (dry run unless --yes)', true, async (run) => {
+  const applyAction: Action = async (run) => {
     const backends = deps.createBackends(run);
     const prep = await prepareApply(run, backends);
     if (!run.yes) {
@@ -101,7 +112,16 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
       return;
     }
     await executeApply(run, prep, backends);
-  });
+  };
+
+  const applyCommand = modeCommand(
+    'apply',
+    'rename the approved files (dry run unless --yes)',
+    true,
+    applyAction,
+    undefined,
+    sharedModes,
+  );
 
   const tagCommand = modeCommand(
     'tag',
@@ -110,6 +130,8 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     async (run) => {
       await tagStage(run, deps.createBackends(run));
     },
+    undefined,
+    sharedModes,
   );
 
   const undoCommand = modeCommand(
@@ -156,6 +178,7 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     (command) => {
       command.option('--only <kind>', 'undo only renames (rename) or only tags (tag)');
     },
+    sharedModes,
   );
 
   const statusCommand = modeCommand('status', 'show what stage the root is at', false, async (run) => {
@@ -180,8 +203,16 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
   const runCommand = modeCommand('run', 'prepare, review, and rename, asking before each step', false, async (run) => {
     await guidedRun(run, {
       io: deps.createReviewIO(),
-      createTitleModel: deps.createTitleModel,
       createBackends: deps.createBackends,
+      prepareQuestion:
+        'Step 1 of 3, prepare: scan the folder, ask the model for titles, and build the rename plan.\n  The model sees file names only, never paths, and no file changes. Run it now?',
+      prepare: async (current) => {
+        await scanStage(current);
+        await parseStage(current, deps.createTitleModel(current));
+        await resolveStage(current);
+        await planStage(current);
+      },
+      review: reviewStage,
     });
   });
 

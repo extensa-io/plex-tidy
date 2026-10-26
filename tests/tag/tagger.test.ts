@@ -62,6 +62,8 @@ function entry(id: string, target: string, overrides: Partial<PlanEntry> = {}): 
     source: 'old name.mkv',
     target,
     sidecars: [],
+    folder: null,
+    tagRecord: null,
     title: 'Sample Title',
     titleSource: 'filename',
     confidence: 'high',
@@ -92,6 +94,23 @@ describe('isTaggable', () => {
 });
 
 describe('planTagging', () => {
+  it('writes the movie record of an entry that has one, and only the title for one that does not', async () => {
+    const files = new Map<string, FakeFile>([
+      [pathOf('movie.mkv'), { title: null }],
+      [pathOf('plain.mkv'), { title: null }],
+    ]);
+    const record = { title: 'Sample Film', genre: ['Drama'], director: ['Sample Director'], tmdb: 'movie/101' };
+    const candidates = await planTagging(
+      planOf([entry('m', 'movie.mkv', { tagRecord: record, title: 'Sample Film' }), entry('p', 'plain.mkv')]),
+      backendsFor(files),
+    );
+    expect(candidates[0]?.desired).toEqual({
+      title: 'Sample Film',
+      fields: { GENRE: ['Drama'], DIRECTOR: ['Sample Director'], TMDB: ['movie/101'] },
+    });
+    expect(candidates[1]?.desired).toEqual({ title: 'Sample Title', fields: {} });
+  });
+
   it('chooses the writer by container and compares with what the file has', async () => {
     const files = new Map<string, FakeFile>([
       [pathOf('a.mkv'), { title: null }],

@@ -17,7 +17,7 @@ export const parseResultSchema = z.object({
 });
 
 export const confidenceSchema = z.enum(['high', 'low']);
-export const titleSourceSchema = z.enum(['filename', 'folder', 'rules-only', 'manual', 'none']);
+export const titleSourceSchema = z.enum(['filename', 'folder', 'rules-only', 'manual', 'none', 'tmdb', 'judge']);
 
 /** What the `resolve` command decided for one file. */
 export const resolutionSchema = z.object({

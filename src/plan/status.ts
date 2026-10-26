@@ -34,7 +34,10 @@ function tagCounts(plan: Plan): PlanSummary['tags'] {
   return counts;
 }
 
-/** An entry waits for the owner when it is pending, or was skipped only because no title was found. */
+/** An entry waits for the owner when it is pending, or was skipped only because no title or no match was found. */
 export function isOpenForReview(entry: Plan['entries'][number]): boolean {
-  return entry.status === 'pending' || (entry.status === 'skipped' && entry.reason === 'no-title');
+  return entry.status === 'pending' || (entry.status === 'skipped' && (entry.reason === 'no-title' || entry.reason === UNMATCHED_REASON));
 }
+
+/** The reason for a movie file that TMDB has no match for. The file stays where it is. */
+export const UNMATCHED_REASON = 'unmatched';

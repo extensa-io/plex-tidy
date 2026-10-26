@@ -160,7 +160,14 @@ function numbered(title: string, number: number): string {
 
 function toEntry(draft: Draft): PlanEntry {
   const { file } = draft;
-  const base = { id: file.id, title: draft.title, titleSource: draft.titleSource, confidence: draft.confidence };
+  const base = {
+    id: file.id,
+    title: draft.title,
+    titleSource: draft.titleSource,
+    confidence: draft.confidence,
+    folder: null,
+    tagRecord: null,
+  };
   const unchangedNames = { target: file.path, sidecars: file.sidecars.map((s) => ({ source: s.path, target: s.path })) };
 
   if (draft.stem === null) {
@@ -219,7 +226,7 @@ function markDuplicateTargets(entries: PlanEntry[]): void {
 }
 
 /** Approved and rejected decisions survive a rebuild when the proposal is the same, or was typed by the owner. */
-function carryOverDecisions(entries: PlanEntry[], previous: Plan | undefined): PlanEntry[] {
+export function carryOverDecisions(entries: PlanEntry[], previous: Plan | undefined): PlanEntry[] {
   if (previous === undefined) {
     return entries;
   }

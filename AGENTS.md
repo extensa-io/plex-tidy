@@ -47,7 +47,7 @@ Install current stable versions and check live documentation instead of assuming
 
 - Node.js current long-term support (LTS), minimum 20.6; TypeScript strict; ECMAScript modules (ESM); `tsx` to run without a build step.
 - `zod` for config, environment, TMDB responses, model output, external tool output, and state files.
-- `@anthropic-ai/sdk` for model calls (forced tool calling with a Zod-derived JSON schema). Model names are in `config.json`; verify current identifiers in live documentation.
+- `@anthropic-ai/sdk` for model calls (forced tool calling with a Zod-derived JSON schema). Model names are in `config.json`; verify current identifiers in live documentation. The Sonnet-tier judge model rejects a forced tool choice with a 400 error, so the judge request uses `tool_choice: auto` and treats an answer without a tool call as invalid. A failed call reports the first API error message in the console.
 - Built-in `fetch` for TMDB; `p-limit` for bounded concurrency.
 - `fast-xml-parser` and `fast-xml-builder` to read and write the Matroska tag XML that `mkvextract` and `mkvpropedit` use.
 - `execa` for external binaries: `ffprobe` (FFmpeg), `mkvpropedit` and `mkvextract` (MKVToolNix), `exiftool` (ExifTool). Install with `winget` and verify package identifiers with `winget search`.
@@ -94,9 +94,10 @@ Layout, under `stateDir` (default `./state`):
 
 - `state/<mode>/<rootId>/scan.json`: files, sidecars, folder segments.
 - `state/<mode>/<rootId>/resolve.json`: parse results, probe data, candidates, scores.
-- `state/<mode>/<rootId>/plan.json`: plan entries with status (`pending`, `approved`, `rejected`, `skipped`, `applied`, `failed`) and `tagStatus` (`untagged`, `tagged`, `tag-skipped`, `tag-failed`) with a `tagReason` for the last two.
+- `state/<mode>/<rootId>/plan.json`: plan entries with status (`pending`, `approved`, `rejected`, `skipped`, `applied`, `failed`) and `tagStatus` (`untagged`, `tagged`, `tag-skipped`, `tag-failed`) with a `tagReason` for the last two. An entry's `target` is the final path after every rename. `folder` (movies and TV) names a folder that `apply` renames after the files inside it, and `tagRecord` holds what `tag` writes; when it is null, `tag` writes the title only.
 - `state/<mode>/<rootId>/journal.jsonl`: JSON Lines write-ahead journal of `intent` and `done` records, with previous values for undo.
-- `state/cache/parse-cache.json` and `state/cache/tmdb-cache.json`: shared caches.
+- `state/cache/parse-cache.json` and `state/cache/tmdb-cache.json`: shared caches. The parse cache holds videos and movies answers under keys that include the mode and the prompt version. The TMDB cache keeps searches for 7 days and movie details for 30 days.
+- In movies mode, `resolve.json` has its own schema (`src/resolve/movie-schemas.ts`): the parsed name, the probe, the scored candidates, and the resolution for each file.
 
 `rootId` is a short hash of the normalized root path. Every file carries `schemaVersion`. Field-level Zod schemas live in `src/state/schemas.ts` and in each module's `schemas.ts`. Writes are atomic (temporary file, then rename). State lives on the local machine, never on the media share.
 
@@ -125,8 +126,8 @@ Domain invariants:
 
 Validated by the Zod schema in `src/env.ts`, lazily per command. See `.env.example`.
 
-- `ANTHROPIC_API_KEY`: required by `parse`, `resolve` (judge), and any command that calls the model.
-- `TMDB_READ_ACCESS_TOKEN`: required by `movies` and `tv` commands that call TMDB. The owner creates a free TMDB developer account and copies the API Read Access Token.
+- `ANTHROPIC_API_KEY`: required by `parse`, `resolve` (judge), and any command that calls the model. Movies `resolve` runs without it and skips the judge.
+- `TMDB_READ_ACCESS_TOKEN`: required by `movies` and `tv` commands that call TMDB (`resolve`, `review`, and `run`). The owner creates a free TMDB developer account and copies the API Read Access Token.
 
 Non-secret settings live in `config.json` (gitignored; `config.example.json` is committed): `stateDir`, `models.parse`, `models.judge`, `autoApplyThreshold`, `tmdbConcurrency`, `parseBatchSize`, and optional `tools.*` binary paths. Library roots are CLI arguments, never config.
 

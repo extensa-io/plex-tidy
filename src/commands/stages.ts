@@ -28,7 +28,9 @@ export async function scanStage(run: RunContext): Promise<void> {
   await writeJsonFile(run.paths.scan, scanSchema, scan);
   const summary = summarizeScan(scan);
   run.logger.info(`scanned ${summary.files} video files and ${summary.sidecars} subtitle files`);
-  run.logger.info(`${summary.untitled} files have no title in the file name`);
+  if (run.mode === 'videos') {
+    run.logger.info(`${summary.untitled} files have no title in the file name`);
+  }
 }
 
 export async function parseStage(run: RunContext, model: TitleModel): Promise<void> {

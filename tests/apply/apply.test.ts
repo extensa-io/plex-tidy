@@ -190,7 +190,7 @@ describe('applyPlan and undo', () => {
   });
 
   it('skips renames that do not change a name', () => {
-    expect(movesFor({ ...({} as Plan['entries'][number]), id: 'x', source: 'A.mkv', target: 'A.mkv', sidecars: [] })).toEqual([]);
+    expect(movesFor({ ...({} as Plan['entries'][number]), id: 'x', source: 'A.mkv', target: 'A.mkv', sidecars: [], folder: null })).toEqual([]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { confidenceSchema, titleSourceSchema } from '../resolve/schemas.ts';
 import { versionedSchema } from '../state/schemas.ts';
+import { tagRecordSchema } from '../tag/schemas.ts';
 
 export const PLAN_SCHEMA_VERSION = 1;
 
@@ -16,12 +17,23 @@ export const sidecarRenameSchema = z.object({
   target: z.string().min(1),
 });
 
-export const planEntrySchema = z.object({
-  id: z.string().min(1),
-  /** Video path relative to the root. */
+/** A folder renamed together with the video. Paths are relative to the root. */
+export const folderRenameSchema = z.object({
   source: z.string().min(1),
   target: z.string().min(1),
+});
+
+export const planEntrySchema = z.object({
+  id: z.string().min(1),
+  /** Video path relative to the root, before any rename. */
+  source: z.string().min(1),
+  /** Video path relative to the root after every rename, including the folder rename. */
+  target: z.string().min(1),
   sidecars: z.array(sidecarRenameSchema),
+  /** The folder that apply renames after the files inside it. Only movies and TV use it. */
+  folder: folderRenameSchema.nullable().default(null),
+  /** What `tag` writes into the file. When null, `tag` writes only the title. */
+  tagRecord: tagRecordSchema.nullable().default(null),
   title: z.string().nullable(),
   titleSource: titleSourceSchema,
   confidence: confidenceSchema,

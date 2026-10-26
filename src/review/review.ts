@@ -20,8 +20,29 @@ export interface ReviewIO {
   ask(message: string): Promise<string>;
 }
 
+/** A movie the owner can pick for an entry in movies mode. */
+export interface MovieOption {
+  id: number;
+  /** One line, such as `Title (2010), 120 min, score 0.82`. */
+  label: string;
+}
+
+/** What movies mode adds to review: TMDB candidates, a search, and an id lookup. */
+export interface MovieReviewDeps {
+  /** The scored candidates the resolve step found for an entry. */
+  optionsFor(entryId: string): readonly MovieOption[];
+  /** Searches TMDB for a typed title. */
+  search(query: string): Promise<readonly MovieOption[]>;
+  /** Checks that TMDB has a movie with this id. */
+  lookup(id: number): Promise<MovieOption | undefined>;
+  /** Builds the entry for the picked movie, or says why it cannot be used. */
+  choose(plan: Plan, entry: PlanEntry, movieId: number): Promise<{ ok: true; entry: PlanEntry } | { ok: false; message: string }>;
+}
+
 export interface ReviewDeps {
   io: ReviewIO;
+  /** Set in movies mode. Replaces typing a title with picking a movie. */
+  movies?: MovieReviewDeps;
   /** Scan data by entry id, for the extension and sidecars of a file whose title is typed. */
   files: ReadonlyMap<string, Pick<ScanFile, 'path' | 'ext' | 'sidecars'>>;
   exists: PathExists;
@@ -72,6 +93,15 @@ export async function runReview(initial: Plan, deps: ReviewDeps): Promise<Review
   const open = summary.plan.entries.filter(isOpenForReview);
   for (const [index, listed] of open.entries()) {
     let entry = summary.plan.entries.find((other) => other.id === listed.id) ?? listed;
+    if (deps.movies !== undefined) {
+      const result = await reviewMovie(io, deps.movies, () => summary.plan, entry, index + 1, open.length, replace);
+      if (result === 'quit') {
+        summary.left = open.length - index;
+        return summary;
+      }
+      summary[result] += 1;
+      continue;
+    }
     for (;;) {
       show(io, entry, index + 1, open.length);
       const choices: Choice[] = [
@@ -121,11 +151,76 @@ export async function runReview(initial: Plan, deps: ReviewDeps): Promise<Review
   return summary;
 }
 
+/** Reviews one movie: accept the proposal, pick a candidate, search TMDB, enter an id, or skip. */
+async function reviewMovie(
+  io: ReviewIO,
+  movies: MovieReviewDeps,
+  currentPlan: () => Plan,
+  initial: PlanEntry,
+  position: number,
+  total: number,
+  replace: (entry: PlanEntry) => Promise<void>,
+): Promise<'accepted' | 'edited' | 'skipped' | 'quit'> {
+  let entry = initial;
+  let options = movies.optionsFor(entry.id);
+  for (;;) {
+    show(io, entry, position, total);
+    const choices: Choice[] = [
+      ...(entry.status === 'pending' && entry.title !== null && !entry.collision
+        ? [{ value: 'accept', label: 'Accept this name' }]
+        : []),
+      ...options.map((option) => ({ value: `pick:${option.id}`, label: `Use ${option.label}` })),
+      { value: 'search', label: 'Search TMDB by title' },
+      { value: 'id', label: 'Enter a TMDB id' },
+      { value: 'skip', label: 'Skip: leave this file as it is' },
+      { value: 'quit', label: 'Quit and keep my decisions so far' },
+    ];
+    const action = await io.choose('What should happen to this file?', choices);
+
+    if (action === 'quit') {
+      return 'quit';
+    }
+    if (action === 'skip') {
+      await replace({ ...entry, status: 'rejected' });
+      return 'skipped';
+    }
+    if (action === 'accept') {
+      await replace({ ...entry, status: 'approved' });
+      return 'accepted';
+    }
+    if (action.startsWith('pick:')) {
+      const result = await movies.choose(currentPlan(), entry, Number(action.slice('pick:'.length)));
+      if (!result.ok) {
+        io.print(result.message);
+        continue;
+      }
+      entry = result.entry;
+      await replace(entry);
+      return 'edited';
+    }
+    if (action === 'search') {
+      const query = (await io.ask('Title to search for:')).trim();
+      const found = query === '' ? [] : await movies.search(query);
+      io.print(found.length === 0 ? 'TMDB found nothing for that title.' : `TMDB found ${found.length} movies.`);
+      options = found.length === 0 ? options : found;
+      continue;
+    }
+    const typed = Number((await io.ask('TMDB movie id:')).trim());
+    const found = Number.isInteger(typed) && typed > 0 ? await movies.lookup(typed) : undefined;
+    if (found === undefined) {
+      io.print('TMDB has no movie with that id.');
+    } else {
+      options = [found];
+    }
+  }
+}
+
 function show(io: ReviewIO, entry: PlanEntry, position: number, total: number): void {
   const folder = folderOf(entry.source);
   io.print('');
   io.print(`[${position}/${total}]${folder === '' ? '' : ` in ${folder}`}`);
   io.print(`  old: ${win32.basename(entry.source)}`);
-  io.print(`  new: ${entry.title === null ? '(no title found)' : win32.basename(entry.target)}`);
+  const renamedFolder = entry.folder === null ? '' : `${win32.basename(entry.folder.target)}\\`;
+  io.print(`  new: ${entry.title === null ? '(no title found)' : `${renamedFolder}${win32.basename(entry.target)}`}`);
   io.print(`  ${entry.confidence} confidence: ${entry.reason}`);
 }

@@ -1,6 +1,5 @@
 import { win32 } from 'node:path';
 import { approvedEntries } from '../apply/apply.ts';
-import type { TitleModel } from '../llm/model-client.ts';
 import type { Backends } from '../tag/backends.ts';
 import { planSchema } from '../plan/schemas.ts';
 import { summarizePlan } from '../plan/status.ts';
@@ -8,12 +7,17 @@ import type { ReviewIO } from '../review/review.ts';
 import { readJsonFile } from '../state/json-file.ts';
 import type { RunContext } from './shared.ts';
 import { requireState } from './shared.ts';
-import { executeApply, parseStage, planStage, prepareApply, resolveStage, reviewStage, scanStage } from './stages.ts';
+import { executeApply, prepareApply } from './stages.ts';
 
 export interface GuidedDeps {
   io: ReviewIO;
-  createTitleModel: (run: RunContext) => TitleModel;
   createBackends: (run: RunContext) => Backends;
+  /** What step 1 tells the owner it will do and what it sends out. */
+  prepareQuestion: string;
+  /** Scan, parse, resolve, and plan. Writes the plan and changes no file. */
+  prepare: (run: RunContext) => Promise<void>;
+  /** Walks the entries that wait for a decision. */
+  review: (run: RunContext, io: ReviewIO) => Promise<unknown>;
 }
 
 /**
@@ -23,20 +27,14 @@ export interface GuidedDeps {
  * the owner's consent to change files.
  */
 export async function guidedRun(run: RunContext, deps: GuidedDeps): Promise<void> {
-  const { io, createTitleModel } = deps;
+  const { io } = deps;
   const backends = deps.createBackends(run);
   const { logger } = run;
 
   const hadPlan = (await readJsonFile(run.paths.plan, planSchema)) !== undefined;
-  const prepare = await io.confirm(
-    'Step 1 of 3, prepare: scan the folder, ask the model for titles, and build the rename plan.\n  The model sees file names only, never paths, and no file changes. Run it now?',
-    true,
-  );
+  const prepare = await io.confirm(deps.prepareQuestion, true);
   if (prepare) {
-    await scanStage(run);
-    await parseStage(run, createTitleModel(run));
-    await resolveStage(run);
-    await planStage(run);
+    await deps.prepare(run);
   } else if (!hadPlan) {
     logger.info('There is no plan yet, so there is nothing to review. Run this command again and answer Yes.');
     return;
@@ -49,7 +47,7 @@ export async function guidedRun(run: RunContext, deps: GuidedDeps): Promise<void
       logger.info('Stopped before review. Run this command again to continue; nothing was changed.');
       return;
     }
-    await reviewStage(run, io);
+    await deps.review(run, io);
     reviewedNow = true;
   }
 

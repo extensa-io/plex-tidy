@@ -55,7 +55,7 @@ export async function planTagging(
     }
 
     const backend = backends[container.writer];
-    const { desired, skipped } = backend.desired({ title: entry.title });
+    const { desired, skipped } = backend.desired(entry.tagRecord ?? { title: entry.title });
     try {
       const current = await backend.read(file, Object.keys(desired.fields));
       candidates.push({

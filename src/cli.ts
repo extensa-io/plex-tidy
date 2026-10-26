@@ -1,6 +1,7 @@
 import { pathToFileURL } from 'node:url';
 import { Command } from 'commander';
 import type { CliContext, CommandRegistry, TopLevelCommand } from './cli-types.ts';
+import { moviesCommands } from './commands/movies.ts';
 import { videosCommands } from './commands/videos.ts';
 import { isAppError } from './errors.ts';
 import { createLogger } from './logger.ts';
@@ -29,7 +30,7 @@ const doctorCommand: TopLevelCommand = {
 // Later phases add their commands here.
 export const commandRegistry: CommandRegistry = {
   topLevel: [doctorCommand],
-  mode: [...videosCommands],
+  mode: [...videosCommands, ...moviesCommands],
 };
 
 export function buildProgram(context: CliContext, registry: CommandRegistry = commandRegistry): Command {

@@ -5,9 +5,16 @@ import { createLogger } from '../src/logger.ts';
 const context = { logger: createLogger({ secrets: [], write: () => undefined }) };
 
 describe('buildProgram', () => {
-  it('registers doctor and the videos mode', () => {
+  it('registers doctor and the videos and movies modes', () => {
     const program = buildProgram(context);
-    expect(program.commands.map((command) => command.name())).toEqual(['doctor', 'videos']);
+    expect(program.commands.map((command) => command.name())).toEqual(['doctor', 'videos', 'movies']);
+  });
+
+  it('registers every movies command, sharing scan, apply, tag, and undo with videos', () => {
+    const movies = buildProgram(context).commands.find((command) => command.name() === 'movies');
+    expect(movies?.commands.map((command) => command.name()).sort()).toEqual(
+      ['apply', 'parse', 'plan', 'resolve', 'review', 'run', 'scan', 'status', 'tag', 'undo'],
+    );
   });
 
   it('registers every videos command with its options', () => {
