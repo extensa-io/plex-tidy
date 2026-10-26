@@ -28,6 +28,8 @@ export const planEntrySchema = z.object({
   reason: z.string().min(1),
   status: planStatusSchema,
   tagStatus: tagStatusSchema,
+  /** Why the file was not tagged: the container is rename-only, or the write failed. */
+  tagReason: z.string().nullable().default(null),
   /** True when the name collides with another file in the folder or with an existing file. */
   collision: z.boolean(),
 });

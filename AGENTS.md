@@ -29,6 +29,7 @@ Read order for a new session: this file, then `specs/design.md`, then the curren
 
 Project-specific conventions:
 
+- ExifTool never touches a network share. The original is downloaded to the system temporary folder in large blocks, ExifTool tags that local copy, and the copy is uploaded in large blocks (`src/tag/copy.ts`). Measured on the owner's network: ExifTool writing to the share ran at 5 MB/s, and reading from it also fell to 5 MB/s whenever the network was busy, while a plain large-block copy ran at 40 to 90 MB/s at the same moments. ExifTool uses tiny blocks, so it is bound by network latency. Keep long operations on shares to large, sequential blocks.
 - Windows is the target platform. The tool runs in a normal, non-elevated user session because mapped drive letters belong to the session that created them. Use `node:path` `win32` semantics where a function must behave the same in tests on any platform.
 - Prefer a short, named list of rules over a clever regular expression. Name each rule so a reader can tell what it removes.
 - When you give the owner a terminal command to run, give exactly one command at a time and wait for its output.
@@ -48,6 +49,7 @@ Install current stable versions and check live documentation instead of assuming
 - `zod` for config, environment, TMDB responses, model output, external tool output, and state files.
 - `@anthropic-ai/sdk` for model calls (forced tool calling with a Zod-derived JSON schema). Model names are in `config.json`; verify current identifiers in live documentation.
 - Built-in `fetch` for TMDB; `p-limit` for bounded concurrency.
+- `fast-xml-parser` and `fast-xml-builder` to read and write the Matroska tag XML that `mkvextract` and `mkvpropedit` use.
 - `execa` for external binaries: `ffprobe` (FFmpeg), `mkvpropedit` and `mkvextract` (MKVToolNix), `exiftool` (ExifTool). Install with `winget` and verify package identifiers with `winget search`.
 - `commander` for the command-line interface (CLI); `@inquirer/prompts` for review.
 - `vitest` for tests; ESLint with `typescript-eslint` for lint.
@@ -77,7 +79,7 @@ plex-tidy/
     plan/             plan building and plan schema
     review/           interactive review
     apply/            rename execution, preflight, journal reconciliation
-    tag/              tag record schema and writers
+    tag/              tag record schema, container matrix, Matroska and ExifTool writers, tag orchestration
     undo/             journal replay
   tests/              unit tests and synthetic fixtures
 ```
@@ -92,7 +94,7 @@ Layout, under `stateDir` (default `./state`):
 
 - `state/<mode>/<rootId>/scan.json`: files, sidecars, folder segments.
 - `state/<mode>/<rootId>/resolve.json`: parse results, probe data, candidates, scores.
-- `state/<mode>/<rootId>/plan.json`: plan entries with status (`pending`, `approved`, `rejected`, `skipped`, `applied`, `failed`) and `tagStatus` (`untagged`, `tagged`, `tag-skipped`, `tag-failed`).
+- `state/<mode>/<rootId>/plan.json`: plan entries with status (`pending`, `approved`, `rejected`, `skipped`, `applied`, `failed`) and `tagStatus` (`untagged`, `tagged`, `tag-skipped`, `tag-failed`) with a `tagReason` for the last two.
 - `state/<mode>/<rootId>/journal.jsonl`: JSON Lines write-ahead journal of `intent` and `done` records, with previous values for undo.
 - `state/cache/parse-cache.json` and `state/cache/tmdb-cache.json`: shared caches.
 
@@ -130,7 +132,7 @@ Non-secret settings live in `config.json` (gitignored; `config.example.json` is 
 
 ## Commands
 
-- `npm run start -- <mode> <command> --root <path> [--yes]`: run the CLI. `<mode>` is `videos`, `movies`, or `tv`. Commands: `run`, `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, `tag`, `undo`, `status`. Commands arrive phase by phase.
+- `npm run start -- <mode> <command> --root <path> [--yes]`: run the CLI. `<mode>` is `videos`, `movies`, or `tv`. Commands: `run`, `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, `tag`, `undo`, `status`. `undo` takes `--only rename` or `--only tag`. Commands arrive phase by phase.
 - `npm run start -- videos run --root <path>`: the guided command. It asks before each of three steps: prepare (scan, parse, resolve, plan), review, and rename. Use it for normal work; the single-stage commands are for resuming or inspecting one stage.
 - `npm run start -- doctor`: check Node version, external binaries, and keys.
 - `npm run check`: typecheck, lint, and tests; the gate for every phase.

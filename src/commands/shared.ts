@@ -10,6 +10,7 @@ import { readJsonFile } from '../state/json-file.ts';
 import { cachePaths, rootStatePaths, type CachePaths, type RootStatePaths } from '../state/paths.ts';
 import type { Mode } from '../state/schemas.ts';
 import type { Logger } from '../logger.ts';
+import { silentProgress, type ProgressFactory } from '../progress.ts';
 
 const runOptionsSchema = z.object({
   root: z.string().trim().min(1),
@@ -33,6 +34,7 @@ export interface RunContext {
   paths: RootStatePaths;
   caches: CachePaths;
   logger: Logger;
+  progress: ProgressFactory;
 }
 
 /** Validates the command-line options and loads config.json. */
@@ -57,6 +59,7 @@ export async function createRunContext(
     paths: rootStatePaths(stateDir, mode, root),
     caches: cachePaths(stateDir),
     logger: cli.logger,
+    progress: cli.progress ?? silentProgress,
   };
 }
 

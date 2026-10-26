@@ -1,7 +1,9 @@
 import type { Command } from 'commander';
+import { z } from 'zod';
 import { reconcileJournal } from '../apply/reconcile.ts';
 import type { CliContext, ModeCommand } from '../cli-types.ts';
 import { loadConfig, type Config } from '../config.ts';
+import { AppError } from '../errors.ts';
 import { requireEnv } from '../env.ts';
 import { createAnthropicTitleModel } from '../llm/anthropic.ts';
 import type { TitleModel } from '../llm/model-client.ts';
@@ -13,11 +15,14 @@ import { scanSchema } from '../scan/schemas.ts';
 import { readJsonFile, writeJsonFile } from '../state/json-file.ts';
 import { openJournal } from '../state/journal.ts';
 import type { Mode } from '../state/schemas.ts';
-import { markUndone, planUndo, undoRenames } from '../undo/undo.ts';
+import { createBackends, type Backends } from '../tag/backends.ts';
+import { createToolLocator, realRunner } from '../tag/runner.ts';
+import { markUndone, planUndo, undoSteps } from '../undo/undo.ts';
 import { guidedRun } from './guided.ts';
-import { addRunOptions, createRunContext, pathExists, requireDirectory, requireState, type RunContext } from './shared.ts';
+import { addRunOptions, createRunContext, requireDirectory, requireState, type RunContext } from './shared.ts';
 import {
   executeApply,
+  journalCheck,
   logPlanSummary,
   logReconcile,
   parseStage,
@@ -26,6 +31,7 @@ import {
   resolveStage,
   reviewStage,
   scanStage,
+  tagStage,
 } from './stages.ts';
 
 /** What the videos commands need from outside, so tests can replace the model, the terminal, and config.json. */
@@ -33,6 +39,8 @@ export interface VideosDeps {
   loadConfig: () => Promise<Config>;
   createTitleModel: (run: RunContext) => TitleModel;
   createReviewIO: () => ReviewIO;
+  /** The tag writers. They find their tools only when first used. */
+  createBackends: (run: RunContext) => Backends;
 }
 
 const defaultDeps: VideosDeps = {
@@ -40,18 +48,29 @@ const defaultDeps: VideosDeps = {
   createTitleModel: (run) =>
     createAnthropicTitleModel({ apiKey: requireEnv('ANTHROPIC_API_KEY'), model: run.config.models.parse }),
   createReviewIO: createTerminalIO,
+  createBackends: (run) => createBackends({ runner: realRunner, locate: createToolLocator(run.config.tools) }),
 };
 
-type Action = (run: RunContext) => Promise<void>;
+type Action = (run: RunContext, command: Command) => Promise<void>;
+
+const undoOnlySchema = z.enum(['rename', 'tag']).optional();
 
 export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeCommand[] {
-  const modeCommand = (name: string, description: string, withYes: boolean, action: Action): ModeCommand => ({
+  const modeCommand = (
+    name: string,
+    description: string,
+    withYes: boolean,
+    action: Action,
+    addOptions?: (command: Command) => void,
+  ): ModeCommand => ({
     name,
     description,
     modes: ['videos'],
     register: (command: Command, mode: Mode, cli: CliContext) => {
-      addRunOptions(command, withYes).action(async () => {
-        await action(await createRunContext(command, mode, cli, deps.loadConfig));
+      addRunOptions(command, withYes);
+      addOptions?.(command);
+      command.action(async () => {
+        await action(await createRunContext(command, mode, cli, deps.loadConfig), command);
       });
     },
   });
@@ -74,37 +93,70 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
   });
 
   const applyCommand = modeCommand('apply', 'rename the approved files (dry run unless --yes)', true, async (run) => {
-    const prep = await prepareApply(run);
+    const backends = deps.createBackends(run);
+    const prep = await prepareApply(run, backends);
     if (!run.yes) {
       run.logger.list('renames that would happen', prep.moves.map((move) => `${move.from} -> ${move.to}`));
       run.logger.info('dry run: nothing was changed. Add --yes to rename.');
       return;
     }
-    await executeApply(run, prep);
+    await executeApply(run, prep, backends);
   });
 
-  const undoCommand = modeCommand('undo', 'put the original names back (dry run unless --yes)', true, async (run) => {
-    await requireDirectory(run.root);
-    const journal = openJournal(run.paths.journal);
-    logReconcile(run, await reconcileJournal(journal, run.root, pathExists, run.yes));
+  const tagCommand = modeCommand(
+    'tag',
+    'write the titles into the renamed files (dry run unless --yes)',
+    true,
+    async (run) => {
+      await tagStage(run, deps.createBackends(run));
+    },
+  );
 
-    const steps = await planUndo(journal);
-    if (!run.yes) {
-      run.logger.list('renames that would be reversed', steps.map((step) => `${step.from} -> ${step.to}`));
-      run.logger.info('dry run: nothing was changed. Add --yes to undo.');
-      return;
-    }
+  const undoCommand = modeCommand(
+    'undo',
+    'put the original names and tags back (dry run unless --yes)',
+    true,
+    async (run, command) => {
+      const only = undoOnlySchema.safeParse(command.opts<{ only?: unknown }>().only);
+      if (!only.success) {
+        throw new AppError('OPTION_INVALID', '--only must be rename or tag.');
+      }
+      await requireDirectory(run.root);
+      const backends = deps.createBackends(run);
+      const journal = openJournal(run.paths.journal);
+      logReconcile(run, await reconcileJournal(journal, journalCheck(run.root, backends), run.yes));
 
-    const outcome = await undoRenames(steps, run.root, journal);
-    const plan = await readJsonFile(run.paths.plan, planSchema);
-    if (plan !== undefined) {
-      await writeJsonFile(run.paths.plan, planSchema, markUndone(plan, outcome.restoredEntries));
-    }
-    run.logger.info(`undid ${outcome.restored} renames; ${outcome.failed} could not be undone`);
-    if (outcome.failed > 0) {
-      process.exitCode = 1;
-    }
-  });
+      const steps = await planUndo(journal, only.data);
+      if (!run.yes) {
+        run.logger.list(
+          'operations that would be reversed',
+          steps.map((step) => (step.kind === 'rename' ? `rename ${step.from} -> ${step.to}` : `tags of ${step.path}`)),
+        );
+        run.logger.info('dry run: nothing was changed. Add --yes to undo.');
+        return;
+      }
+
+      const task = run.progress('undoing');
+      const outcome = await undoSteps(steps, {
+        root: run.root,
+        journal,
+        backends,
+        onProgress: (done, total) => { task.update(done, total); },
+      });
+      task.done();
+      const plan = await readJsonFile(run.paths.plan, planSchema);
+      if (plan !== undefined) {
+        await writeJsonFile(run.paths.plan, planSchema, markUndone(plan, outcome.restoredRenames, outcome.restoredTags));
+      }
+      run.logger.info(`undid ${outcome.restored} operations; ${outcome.failed} could not be undone`);
+      if (outcome.failed > 0) {
+        process.exitCode = 1;
+      }
+    },
+    (command) => {
+      command.option('--only <kind>', 'undo only renames (rename) or only tags (tag)');
+    },
+  );
 
   const statusCommand = modeCommand('status', 'show what stage the root is at', false, async (run) => {
     const [scan, resolved, plan] = await Promise.all([
@@ -126,7 +178,11 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
   });
 
   const runCommand = modeCommand('run', 'prepare, review, and rename, asking before each step', false, async (run) => {
-    await guidedRun(run, { io: deps.createReviewIO(), createTitleModel: deps.createTitleModel });
+    await guidedRun(run, {
+      io: deps.createReviewIO(),
+      createTitleModel: deps.createTitleModel,
+      createBackends: deps.createBackends,
+    });
   });
 
   return [
@@ -137,6 +193,7 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     planCommand,
     reviewCommand,
     applyCommand,
+    tagCommand,
     undoCommand,
     statusCommand,
   ];

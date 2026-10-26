@@ -16,6 +16,7 @@ export interface ParseVideosOptions {
   model: TitleModel;
   cache: ParseCache;
   batchSize: number;
+  onBatch?: (done: number, total: number) => void;
 }
 
 export interface ParseVideosOutput {

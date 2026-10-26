@@ -20,6 +20,7 @@ describe('buildProgram', () => {
       'plan',
       'review',
       'apply',
+      'tag',
       'undo',
       'status',
     ]);
@@ -28,7 +29,8 @@ describe('buildProgram', () => {
     expect(optionNames('scan')).toEqual(['--root', '--state-dir']);
     expect(optionNames('run')).toEqual(['--root', '--state-dir']);
     expect(optionNames('apply')).toEqual(['--root', '--state-dir', '--yes']);
-    expect(optionNames('undo')).toEqual(['--root', '--state-dir', '--yes']);
+    expect(optionNames('tag')).toEqual(['--root', '--state-dir', '--yes']);
+    expect(optionNames('undo')).toEqual(['--root', '--state-dir', '--yes', '--only']);
   });
 
   it('adds a mode group only for modes that have commands', () => {

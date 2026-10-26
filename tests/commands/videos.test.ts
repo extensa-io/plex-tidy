@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { planSchema } from '../../src/plan/schemas.ts';
 import { readJsonFile } from '../../src/state/json-file.ts';
 import { buildUpToPlan, exists, harness } from '../helpers/cli-harness.ts';
+import { recordingProgress, type RecordedTask } from '../helpers/recording-progress.ts';
 import { createTree, listTree } from '../helpers/tree.ts';
 
 describe('videos mode through the command line', () => {
@@ -157,5 +158,57 @@ describe('videos mode through the command line', () => {
     const h = await harness();
     await h.run('scan');
     expect(await exists(join(h.paths.dir, 'scan.json'))).toBe(true);
+  });
+});
+
+describe('progress during long steps', () => {
+  const lastOf = (tasks: RecordedTask[], label: string) => tasks.filter((task) => task.label === label).at(-1);
+
+  it('reports scan, model requests, plan, pre-checks, renaming, and undo', async () => {
+    const { factory, tasks } = recordingProgress();
+    const h = await harness({ progress: factory });
+
+    await h.run('scan');
+    expect(lastOf(tasks, 'scanning (video files found)')).toMatchObject({ finished: true });
+    expect(lastOf(tasks, 'scanning (video files found)')?.updates.at(-1)).toEqual([10, undefined]);
+
+    await h.run('parse');
+    const model = lastOf(tasks, 'asking the model (requests)');
+    expect(model?.finished).toBe(true);
+    expect(model?.updates.at(-1)?.[0]).toBe(model?.updates.at(-1)?.[1]);
+
+    await h.run('resolve');
+    await h.run('plan');
+    expect(lastOf(tasks, 'checking names against the disk')).toMatchObject({ finished: true });
+    expect(lastOf(tasks, 'checking names against the disk')?.updates.at(-1)).toEqual([10, 10]);
+
+    await h.run('review');
+    await h.run('apply', '--yes');
+    expect(lastOf(tasks, 'checking renames')?.updates.at(-1)).toEqual([8, 8]);
+    expect(lastOf(tasks, 'renaming')).toMatchObject({ finished: true });
+    expect(lastOf(tasks, 'renaming')?.updates).toEqual(Array.from({ length: 9 }, (_, index) => [index, 8]));
+
+    await h.run('undo', '--yes');
+    expect(lastOf(tasks, 'undoing')?.updates.at(-1)).toEqual([11, 11]);
+    expect(lastOf(tasks, 'undoing')?.finished).toBe(true);
+  });
+
+  it('shows nothing for a model step when every answer came from the cache', async () => {
+    const { factory, tasks } = recordingProgress();
+    const h = await harness({ progress: factory });
+    await h.run('scan');
+    await h.run('parse');
+    await h.run('parse');
+    const requests = tasks.filter((task) => task.label === 'asking the model (requests)');
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.updates).toEqual([]);
+  });
+
+  it('keeps file names out of the progress labels', async () => {
+    const { factory, tasks } = recordingProgress();
+    const h = await harness({ progress: factory });
+    await h.run('scan');
+    await h.run('parse');
+    expect(JSON.stringify(tasks)).not.toMatch(/Sample|Beach|Family|IMG_|VID_/);
   });
 });

@@ -73,6 +73,8 @@ export interface ParseOptions {
   cache: ParseCache;
   batchSize: number;
   promptVersion?: string;
+  /** Called after each model request finishes, with the requests done and the total. */
+  onBatch?: (done: number, total: number) => void;
 }
 
 export interface ParseOutput {
@@ -109,6 +111,10 @@ export async function proposeTitles(inputs: readonly TitleInput[], options: Pars
 
   const limit = pLimit(MODEL_CONCURRENCY);
   const jobs: Promise<void>[] = [];
+  const totalBatches = (['filename', 'folders'] as const).reduce(
+    (sum, kind) => sum + Math.ceil(pending.filter((entry) => entry.input.kind === kind).length / options.batchSize),
+    0,
+  );
   for (const kind of ['filename', 'folders'] as const) {
     const ofKind = pending.filter((entry) => entry.input.kind === kind);
     for (let start = 0; start < ofKind.length; start += options.batchSize) {
@@ -120,6 +126,7 @@ export async function proposeTitles(inputs: readonly TitleInput[], options: Pars
             items: chunk.map((entry, id) => ({ id, sources: entry.input.sources })),
           });
           stats.batches += 1;
+          options.onBatch?.(stats.batches, totalBatches);
           stats.inputTokens += outcome.usage.inputTokens;
           stats.outputTokens += outcome.usage.outputTokens;
 

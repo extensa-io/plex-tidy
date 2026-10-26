@@ -38,11 +38,17 @@ export function approvedEntries(plan: Plan): PlanEntry[] {
  * the limit, an illegal name, a missing source, a target that already
  * exists, or a target shared by two renames.
  */
-export async function preflight(plan: Plan, exists: PathExists): Promise<PreflightProblem[]> {
+export async function preflight(
+  plan: Plan,
+  exists: PathExists,
+  onProgress?: (done: number, total: number) => void,
+): Promise<PreflightProblem[]> {
   const problems: PreflightProblem[] = [];
   const claimed = new Map<string, string>();
 
-  for (const entry of approvedEntries(plan)) {
+  const approved = approvedEntries(plan);
+  for (const [index, entry] of approved.entries()) {
+    onProgress?.(index + 1, approved.length);
     for (const move of movesFor(entry)) {
       // `resolve`, not `join`: a crafted absolute path must show up as what it is.
       const from = win32.resolve(plan.root, move.from);
@@ -91,6 +97,8 @@ export interface ApplyDeps {
   journal: Journal;
   /** Called after each entry so a crash loses at most one entry's status. */
   save: (plan: Plan) => Promise<void>;
+  /** Called after each entry, with the entries done and the total. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 /**
@@ -102,7 +110,9 @@ export async function applyPlan(plan: Plan, deps: ApplyDeps): Promise<{ plan: Pl
   let current = plan;
   const outcome: ApplyOutcome = { applied: 0, failed: 0, renames: 0 };
 
-  for (const entry of approvedEntries(plan)) {
+  const approved = approvedEntries(plan);
+  deps.onProgress?.(0, approved.length);
+  for (const [index, entry] of approved.entries()) {
     const result = await applyEntry(entry, deps);
     outcome.renames += result.renames;
     outcome.applied += result.status === 'applied' ? 1 : 0;
@@ -114,6 +124,7 @@ export async function applyPlan(plan: Plan, deps: ApplyDeps): Promise<{ plan: Pl
       ),
     };
     await deps.save(current);
+    deps.onProgress?.(index + 1, approved.length);
   }
   return { plan: current, outcome };
 }

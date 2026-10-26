@@ -12,6 +12,8 @@ export interface BuildPlanOptions {
   /** A plan from an earlier run. Review decisions on entries that did not change carry over. */
   previous?: Plan | undefined;
   now?: Date;
+  /** Called while the tool checks the disk for names that already exist. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 const MAX_NUMBER = 999;
@@ -49,7 +51,7 @@ export async function buildPlan(scan: Scan, resolved: ResolveFile, options: Buil
   });
 
   numberCollidingTitles(drafts);
-  await avoidExistingFiles(drafts, scan.root, options.exists);
+  await avoidExistingFiles(drafts, scan.root, options.exists, options.onProgress);
 
   const entries = drafts.map((draft) => toEntry(draft));
   markDuplicateTargets(entries);
@@ -95,7 +97,12 @@ function numberCollidingTitles(drafts: Draft[]): void {
  * A target that already exists on disk is a collision. The entry takes the
  * first free number instead, and review sees it.
  */
-async function avoidExistingFiles(drafts: Draft[], root: string, exists: PathExists): Promise<void> {
+async function avoidExistingFiles(
+  drafts: Draft[],
+  root: string,
+  exists: PathExists,
+  onProgress: ((done: number, total: number) => void) | undefined,
+): Promise<void> {
   // Every path any entry reads or writes is taken, including files about to be renamed away.
   const taken = new Set<string>();
   for (const draft of drafts) {
@@ -111,7 +118,8 @@ async function avoidExistingFiles(drafts: Draft[], root: string, exists: PathExi
     }
   }
 
-  for (const draft of drafts) {
+  for (const [index, draft] of drafts.entries()) {
+    onProgress?.(index + 1, drafts.length);
     if (draft.title === null || draft.stem === null) {
       continue;
     }
@@ -163,6 +171,7 @@ function toEntry(draft: Draft): PlanEntry {
       reason: 'no-title',
       status: 'skipped',
       tagStatus: 'untagged',
+      tagReason: null,
       collision: false,
     };
   }
@@ -181,6 +190,7 @@ function toEntry(draft: Draft): PlanEntry {
         : draft.reason,
     status: unchanged ? 'skipped' : 'pending',
     tagStatus: 'untagged',
+    tagReason: null,
     collision: draft.collision,
   };
 }

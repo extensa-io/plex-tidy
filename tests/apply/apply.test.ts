@@ -2,11 +2,11 @@ import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyPlan, movesFor, preflight, requireNoProblems } from '../../src/apply/apply.ts';
-import { RENAME_ACTION, reconcileJournal } from '../../src/apply/reconcile.ts';
+import { RENAME_ACTION, composeCheckers, reconcileJournal, renameChecker } from '../../src/apply/reconcile.ts';
 import { pathExists } from '../../src/fs-win/exists.ts';
 import type { Plan } from '../../src/plan/schemas.ts';
 import { openJournal } from '../../src/state/journal.ts';
-import { markUndone, planUndo, undoRenames } from '../../src/undo/undo.ts';
+import { markUndone, planUndo, undoSteps } from '../../src/undo/undo.ts';
 import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { approveAll, planFor } from '../helpers/pipeline.ts';
 import { useTempDirs } from '../helpers/temp-dir.ts';
@@ -152,18 +152,18 @@ describe('applyPlan and undo', () => {
 
     const steps = await planUndo(journal);
     expect(steps).toHaveLength(11);
-    const outcome = await undoRenames(steps, root, journal);
+    const outcome = await undoSteps(steps, { root, journal });
     expect(outcome).toMatchObject({ restored: 11, failed: 0 });
     expect(await listTree(root)).toEqual(before);
     expect(await readFile(join(root, 'Trips', 'SAMPLE FILM TWO.mkv'), 'utf8')).toBe('Trips\\SAMPLE FILM TWO.mkv');
 
-    expect(markUndone(applied, outcome.restoredEntries).entries.filter((entry) => entry.status === 'approved')).toHaveLength(8);
+    expect(markUndone(applied, outcome.restoredRenames).entries.filter((entry) => entry.status === 'approved')).toHaveLength(8);
   });
 
   it('a second undo finds nothing left to reverse', async () => {
     const { root, plan, journal, save } = await setup();
     await applyPlan(plan, { root, journal, save });
-    await undoRenames(await planUndo(journal), root, journal);
+    await undoSteps(await planUndo(journal), { root, journal });
     expect(await planUndo(journal)).toEqual([]);
   });
 
@@ -172,7 +172,7 @@ describe('applyPlan and undo', () => {
     await applyPlan(plan, { root, journal, save });
     await writeFile(join(root, 'sample.film.2011.1080p.mkv'), 'a different file');
 
-    const outcome = await undoRenames(await planUndo(journal), root, journal);
+    const outcome = await undoSteps(await planUndo(journal), { root, journal });
     expect(outcome.failed).toBe(1);
     expect(await readFile(join(root, 'sample.film.2011.1080p.mkv'), 'utf8')).toBe('a different file');
     expect(await journal.unmatchedIntents()).toEqual([]);
@@ -212,30 +212,30 @@ describe('reconcileJournal', () => {
 
   it('detects and reports interrupted renames without writing in a dry run', async () => {
     const { root, journal } = await interrupted();
-    const summary = await reconcileJournal(journal, root, pathExists, false);
+    const summary = await reconcileJournal(journal, composeCheckers(renameChecker(root, pathExists)), false);
     expect(summary).toEqual({ completed: 1, notStarted: 1, unknown: 1 });
     expect(await journal.unmatchedIntents()).toHaveLength(3);
   });
 
   it('closes finished and never-started intents and leaves the unknown one open', async () => {
     const { root, journal } = await interrupted();
-    await reconcileJournal(journal, root, pathExists, true);
+    await reconcileJournal(journal, composeCheckers(renameChecker(root, pathExists)), true);
     const open = await journal.unmatchedIntents();
     expect(open.map((intent) => intent.data.entryId)).toEqual(['c']);
   });
 
   it('lets undo reverse a rename that finished before the interruption', async () => {
     const { root, journal } = await interrupted();
-    await reconcileJournal(journal, root, pathExists, true);
+    await reconcileJournal(journal, composeCheckers(renameChecker(root, pathExists)), true);
     const steps = await planUndo(journal);
-    expect(steps.map((step) => step.to)).toEqual(['finished before.mkv']);
-    await undoRenames(steps, root, journal);
+    expect(steps.map((step) => (step.kind === 'rename' ? step.to : ''))).toEqual(['finished before.mkv']);
+    await undoSteps(steps, { root, journal });
     expect(await listTree(root)).toEqual(['finished before.mkv', 'never started.mkv', 'both gone.mkv'].sort((a, b) => a.localeCompare(b)));
   });
 
   it('reports nothing when the journal is complete', async () => {
     const { root, plan, journal, save } = await setup();
     await applyPlan(plan, { root, journal, save });
-    expect(await reconcileJournal(journal, root, pathExists, true)).toEqual({ completed: 0, notStarted: 0, unknown: 0 });
+    expect(await reconcileJournal(journal, composeCheckers(renameChecker(root, pathExists)), true)).toEqual({ completed: 0, notStarted: 0, unknown: 0 });
   });
 });

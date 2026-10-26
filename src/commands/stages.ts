@@ -1,5 +1,6 @@
 import { applyPlan, approvedEntries, movesFor, preflight, requireNoProblems, type Move } from '../apply/apply.ts';
-import { reconcileJournal, type ReconcileSummary } from '../apply/reconcile.ts';
+import { rm } from 'node:fs/promises';
+import { composeCheckers, reconcileJournal, renameChecker, type ReconcileSummary } from '../apply/reconcile.ts';
 import { AppError } from '../errors.ts';
 import type { TitleModel } from '../llm/model-client.ts';
 import { loadParseCache } from '../llm/title-parser.ts';
@@ -14,11 +15,16 @@ import { scanRoot, summarizeScan } from '../scan/scan.ts';
 import { scanSchema } from '../scan/schemas.ts';
 import { readJsonFile, writeJsonFile } from '../state/json-file.ts';
 import { openJournal, type Journal } from '../state/journal.ts';
+import { tagChecker, type Backends } from '../tag/backends.ts';
+import type { CopyPhase } from '../tag/backend.ts';
+import { countCandidates, findLeftoverCopies, findLeftoverWorkDirs, planTagging, runTagging } from '../tag/tagger.ts';
 import { normalizeRoot } from '../state/paths.ts';
 import { pathExists, requireDirectory, requireState, type RunContext } from './shared.ts';
 
 export async function scanStage(run: RunContext): Promise<void> {
-  const scan = await scanRoot(run.root);
+  const task = run.progress('scanning (video files found)');
+  const scan = await scanRoot(run.root, { onFile: (count) => { task.update(count); } });
+  task.done();
   await writeJsonFile(run.paths.scan, scanSchema, scan);
   const summary = summarizeScan(scan);
   run.logger.info(`scanned ${summary.files} video files and ${summary.sidecars} subtitle files`);
@@ -29,7 +35,14 @@ export async function parseStage(run: RunContext, model: TitleModel): Promise<vo
   const scan = await requireState(run.paths.scan, scanSchema, 'scan');
   const cache = await loadParseCache(run.caches.parse);
 
-  const result = await parseVideos(scan, { model, cache, batchSize: run.config.parseBatchSize });
+  const task = run.progress('asking the model (requests)');
+  const result = await parseVideos(scan, {
+    model,
+    cache,
+    batchSize: run.config.parseBatchSize,
+    onBatch: (done, total) => { task.update(done, total); },
+  });
+  task.done();
   await writeJsonFile(run.paths.resolve, resolveFileSchema, {
     schemaVersion: 1,
     scanId: scan.scanId,
@@ -76,7 +89,13 @@ export async function planStage(run: RunContext): Promise<Plan> {
   const resolved = await requireState(run.paths.resolve, resolveFileSchema, 'parse and resolve');
   const previous = await readJsonFile(run.paths.plan, planSchema);
 
-  const plan = await buildPlan(scan, resolved, { exists: pathExists, previous });
+  const task = run.progress('checking names against the disk');
+  const plan = await buildPlan(scan, resolved, {
+    exists: pathExists,
+    previous,
+    onProgress: (done, total) => { task.update(done, total); },
+  });
+  task.done();
   await writeJsonFile(run.paths.plan, planSchema, plan);
   logPlanSummary(run, plan);
   return plan;
@@ -109,7 +128,7 @@ export interface ApplyPrep {
  * Loads the plan and checks every approved rename. Writes nothing, and
  * throws before any change when a single rename has a problem.
  */
-export async function prepareApply(run: RunContext): Promise<ApplyPrep> {
+export async function prepareApply(run: RunContext, backends: Backends): Promise<ApplyPrep> {
   const plan = await requireState(run.paths.plan, planSchema, 'plan');
   if (normalizeRoot(plan.root) !== normalizeRoot(run.root)) {
     throw new AppError('OPTION_INVALID', 'The plan was made for a different root.');
@@ -117,9 +136,11 @@ export async function prepareApply(run: RunContext): Promise<ApplyPrep> {
   await requireDirectory(plan.root);
 
   const journal = openJournal(run.paths.journal);
-  logReconcile(run, await reconcileJournal(journal, plan.root, pathExists, false));
+  logReconcile(run, await reconcileJournal(journal, journalCheck(plan.root, backends), false));
 
-  const problems = await preflight(plan, pathExists);
+  const task = run.progress('checking renames');
+  const problems = await preflight(plan, pathExists, (done, total) => { task.update(done, total); });
+  task.done();
   for (const problem of problems) {
     run.logger.debug(`  ${problem.entryId}: ${problem.message}`);
   }
@@ -128,15 +149,114 @@ export async function prepareApply(run: RunContext): Promise<ApplyPrep> {
 }
 
 /** Renames the approved files. The caller has already got the owner's consent. */
-export async function executeApply(run: RunContext, prep: ApplyPrep): Promise<void> {
-  await reconcileJournal(prep.journal, prep.plan.root, pathExists, true);
+export async function executeApply(run: RunContext, prep: ApplyPrep, backends: Backends): Promise<void> {
+  await reconcileJournal(prep.journal, journalCheck(prep.plan.root, backends), true);
+  const task = run.progress('renaming');
   const { plan: updated, outcome } = await applyPlan(prep.plan, {
     root: prep.plan.root,
     journal: prep.journal,
     save: (current) => writeJsonFile(run.paths.plan, planSchema, current),
+    onProgress: (done, total) => { task.update(done, total); },
   });
+  task.done();
   await writeJsonFile(run.paths.plan, planSchema, updated);
   run.logger.info(`applied ${outcome.applied} entries (${outcome.renames} renames); ${outcome.failed} failed`);
+  if (outcome.failed > 0) {
+    process.exitCode = 1;
+  }
+}
+
+/** Checks unfinished journal lines of every kind against the real files. */
+export function journalCheck(root: string, backends: Backends) {
+  return composeCheckers(renameChecker(root, pathExists), tagChecker(root, backends));
+}
+
+/**
+ * Writes the titles into the renamed files. A dry run reads the files and
+ * reports; it changes nothing, not even the plan.
+ */
+export async function tagStage(run: RunContext, backends: Backends): Promise<void> {
+  const plan = await requireState(run.paths.plan, planSchema, 'plan');
+  if (normalizeRoot(plan.root) !== normalizeRoot(run.root)) {
+    throw new AppError('OPTION_INVALID', 'The plan was made for a different root.');
+  }
+  await requireDirectory(plan.root);
+
+  const journal = openJournal(run.paths.journal);
+  logReconcile(run, await reconcileJournal(journal, journalCheck(plan.root, backends), run.yes));
+
+  const leftovers = [...(await findLeftoverCopies(plan)), ...(await findLeftoverWorkDirs())];
+  if (leftovers.length > 0) {
+    if (run.yes) {
+      await Promise.all(leftovers.map((copy) => rm(copy, { recursive: true, force: true })));
+      run.logger.info(`removed ${leftovers.length} temporary copies left by an interrupted run`);
+    } else {
+      run.logger.info(`${leftovers.length} temporary copies left by an interrupted run; --yes removes them`);
+    }
+  }
+
+  const reading = run.progress('reading tags');
+  const candidates = await planTagging(plan, backends, (done, total) => { reading.update(done, total); });
+  reading.done();
+  if (candidates.length === 0) {
+    run.logger.info('nothing to tag: tagging applies to files that were renamed with apply');
+    return;
+  }
+  const counts = countCandidates(candidates);
+  run.logger.info(
+    `tag: ${counts.write} to write, ${counts.unchanged} already correct, ${counts.unsupported} rename-only, ${counts.unreadable} could not be read`,
+  );
+  for (const [reason, count] of Object.entries(counts.unsupportedReasons)) {
+    run.logger.info(`rename-only: ${count} files, because ${reason}`);
+  }
+  for (const candidate of candidates.filter((item) => item.action === 'unreadable')) {
+    run.logger.debug(`  ${candidate.entry.id}: ${candidate.reason ?? 'unreadable'}`);
+  }
+
+  if (!run.yes) {
+    run.logger.list(
+      'files that would be tagged',
+      candidates.filter((item) => item.action === 'write').map((item) => item.entry.target),
+    );
+    run.logger.info('dry run: nothing was changed. Add --yes to tag.');
+    return;
+  }
+
+  const writing = run.progress('tagging');
+  // The last size seen for the file being copied, to work out the copy speed.
+  let sample: { at: number; bytes: number; phase: CopyPhase } | undefined;
+  const describeCopy = (copied: number, total: number, phase: CopyPhase): string => {
+    const now = Date.now();
+    const megabytes = (bytes: number) => Math.round(bytes / (1024 * 1024));
+    const speed =
+      sample?.phase === phase && now > sample.at && copied >= sample.bytes
+        ? `, ${((copied - sample.bytes) / (1024 * 1024) / ((now - sample.at) / 1000)).toFixed(1)} MB/s`
+        : '';
+    sample = { at: now, bytes: copied, phase };
+    if (phase === 'building') {
+      return 'writing the tags';
+    }
+    const action = phase === 'downloading' ? 'downloading' : 'uploading';
+    return `${action} ${megabytes(Math.min(copied, total))} of ${megabytes(total)} MB${speed}`;
+  };
+  const { outcome } = await runTagging(plan, candidates, {
+    root: plan.root,
+    journal,
+    backends,
+    save: (current) => writeJsonFile(run.paths.plan, planSchema, current),
+    onProgress: (done, total) => {
+      writing.update(done, total);
+      writing.detail(undefined);
+      sample = undefined;
+    },
+    onCopyProgress: (copied, total, phase) => {
+      writing.detail(describeCopy(copied, total, phase));
+    },
+  });
+  writing.done();
+  run.logger.info(
+    `tagged ${outcome.tagged} files; ${outcome.unchanged} already correct, ${outcome.skipped} rename-only, ${outcome.failed} failed`,
+  );
   if (outcome.failed > 0) {
     process.exitCode = 1;
   }
@@ -149,6 +269,12 @@ export function logPlanSummary(run: RunContext, plan: Plan): void {
     .join(', ');
   run.logger.info(`plan: ${summary.total} entries: ${counts}`);
   run.logger.info(`${summary.awaitingReview} wait for review; ${summary.collisions} collisions; ${summary.lowConfidence} low confidence`);
+  const { tags } = summary;
+  if (summary.byStatus.applied > 0) {
+    run.logger.info(
+      `tags: ${tags.untagged} untagged, ${tags.tagged} tagged, ${tags['tag-skipped']} rename-only, ${tags['tag-failed']} failed`,
+    );
+  }
 }
 
 export function logReconcile(run: RunContext, summary: ReconcileSummary): void {

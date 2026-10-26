@@ -20,12 +20,17 @@ export function fileId(relativePath: string): string {
   return createHash('sha256').update(relativePath.toLowerCase()).digest('hex').slice(0, 12);
 }
 
-export async function scanRoot(root: string): Promise<Scan> {
+export interface ScanOptions {
+  /** Called after each video file is found, with the count so far. */
+  onFile?: (count: number) => void;
+}
+
+export async function scanRoot(root: string, options: ScanOptions = {}): Promise<Scan> {
   const absoluteRoot = win32.resolve(root);
   await requireDirectory(absoluteRoot);
 
   const files: ScanFile[] = [];
-  await walk(absoluteRoot, [], files);
+  await walk(absoluteRoot, [], files, options.onFile);
   files.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()) || a.path.localeCompare(b.path));
 
   return {
@@ -66,7 +71,12 @@ async function requireDirectory(path: string): Promise<void> {
 }
 
 /** `relativeFolders` is the path from the root to `directory`, outermost first. */
-async function walk(directory: string, relativeFolders: readonly string[], out: ScanFile[]): Promise<void> {
+async function walk(
+  directory: string,
+  relativeFolders: readonly string[],
+  out: ScanFile[],
+  onFile: ((count: number) => void) | undefined,
+): Promise<void> {
   let entries;
   try {
     entries = await readdir(directory, { withFileTypes: true });
@@ -81,7 +91,7 @@ async function walk(directory: string, relativeFolders: readonly string[], out: 
       continue;
     }
     if (entry.isDirectory()) {
-      await walk(win32.join(directory, entry.name), [...relativeFolders, entry.name], out);
+      await walk(win32.join(directory, entry.name), [...relativeFolders, entry.name], out, onFile);
     } else if (entry.isFile()) {
       fileNames.push(entry.name);
     }
@@ -105,6 +115,7 @@ async function walk(directory: string, relativeFolders: readonly string[], out: 
       titled: detection.titled,
       untitledReason: detection.titled ? null : detection.reason,
     });
+    onFile?.(out.length);
   }
 }
 

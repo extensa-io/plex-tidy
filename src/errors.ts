@@ -22,6 +22,9 @@ export const errorCodes = [
   'STAGE_STALE',
   'PREFLIGHT_FAILED',
   'ENTRY_NOT_FOUND',
+  'TAG_VERIFY_FAILED',
+  'TAG_NO_SPACE',
+  'TAG_UNSUPPORTED',
 ] as const;
 
 export type ErrorCode = (typeof errorCodes)[number];

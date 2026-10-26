@@ -4,7 +4,10 @@ import { buildProgram } from '../../src/cli.ts';
 import { createVideosCommands, type VideosDeps } from '../../src/commands/videos.ts';
 import { parseConfig } from '../../src/config.ts';
 import { createLogger } from '../../src/logger.ts';
+import type { ProgressFactory } from '../../src/progress.ts';
 import type { ReviewIO } from '../../src/review/review.ts';
+import { createBackends, type Backends } from '../../src/tag/backends.ts';
+import { createToolLocator, realRunner } from '../../src/tag/runner.ts';
 import { rootStatePaths } from '../../src/state/paths.ts';
 import { libraryTree } from '../fixtures/videos-corpus.ts';
 import { createStubModel, type StubModel, type StubModelOptions } from './stub-model.ts';
@@ -30,6 +33,8 @@ export interface HarnessOptions {
   level?: 'info' | 'debug';
   io?: ReviewIO;
   tree?: readonly string[];
+  backends?: Backends;
+  progress?: ProgressFactory;
 }
 
 export async function harness(options: HarnessOptions = {}) {
@@ -48,9 +53,14 @@ export async function harness(options: HarnessOptions = {}) {
       return model;
     },
     createReviewIO: () => io,
+    createBackends: () =>
+      options.backends ?? createBackends({ runner: realRunner, locate: createToolLocator({}) }),
   };
   const run = async (command: string, ...flags: string[]) => {
-    const program = buildProgram({ logger }, { topLevel: [], mode: createVideosCommands(deps) });
+    const program = buildProgram(
+      options.progress === undefined ? { logger } : { logger, progress: options.progress },
+      { topLevel: [], mode: createVideosCommands(deps) },
+    );
     await program.parseAsync(['node', 'plex-tidy', 'videos', command, '--root', root, '--state-dir', stateDir, ...flags]);
   };
   const paths = rootStatePaths(stateDir, 'videos', root);

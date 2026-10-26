@@ -1,4 +1,4 @@
-import { planStatuses, type Plan, type PlanStatus } from './schemas.ts';
+import { planStatuses, type Plan, type PlanEntry, type PlanStatus } from './schemas.ts';
 
 export interface PlanSummary {
   total: number;
@@ -7,6 +7,8 @@ export interface PlanSummary {
   lowConfidence: number;
   /** Open entries: waiting for a decision in review. */
   awaitingReview: number;
+  /** Tag state of the renamed files. */
+  tags: Record<PlanEntry['tagStatus'], number>;
 }
 
 export function summarizePlan(plan: Plan): PlanSummary {
@@ -20,7 +22,16 @@ export function summarizePlan(plan: Plan): PlanSummary {
     collisions: plan.entries.filter((entry) => entry.collision).length,
     lowConfidence: plan.entries.filter((entry) => entry.confidence === 'low' && entry.status !== 'skipped').length,
     awaitingReview: plan.entries.filter(isOpenForReview).length,
+    tags: tagCounts(plan),
   };
+}
+
+function tagCounts(plan: Plan): PlanSummary['tags'] {
+  const counts: PlanSummary['tags'] = { untagged: 0, tagged: 0, 'tag-skipped': 0, 'tag-failed': 0 };
+  for (const entry of plan.entries.filter((item) => item.status === 'applied')) {
+    counts[entry.tagStatus] += 1;
+  }
+  return counts;
 }
 
 /** An entry waits for the owner when it is pending, or was skipped only because no title was found. */

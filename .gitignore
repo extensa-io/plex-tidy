@@ -1,14 +1,16 @@
+# Private planning
 .assets
-
-# Private specs
 /specs/
 
 # Runtime state and local settings
 /state/
 /config.json
 .env
+.env.*
+!.env.example
 
-# Dependencies and tool output
+# Tooling
 node_modules/
+dist/
 coverage/
 *.log

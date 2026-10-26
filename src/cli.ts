@@ -4,6 +4,7 @@ import type { CliContext, CommandRegistry, TopLevelCommand } from './cli-types.t
 import { videosCommands } from './commands/videos.ts';
 import { isAppError } from './errors.ts';
 import { createLogger } from './logger.ts';
+import { createProgress } from './progress.ts';
 import { modeSchema } from './state/schemas.ts';
 import { doctorHasProblems, formatDoctorReport, runDoctor } from './tools/doctor.ts';
 
@@ -56,7 +57,7 @@ export function buildProgram(context: CliContext, registry: CommandRegistry = co
 export async function main(argv: readonly string[]): Promise<number> {
   const logger = createLogger({ level: argv.includes('--verbose') ? 'debug' : 'info' });
   try {
-    await buildProgram({ logger }).parseAsync([...argv]);
+    await buildProgram({ logger, progress: createProgress() }).parseAsync([...argv]);
     return typeof process.exitCode === 'number' ? process.exitCode : 0;
   } catch (error) {
     if (error instanceof Error && error.name === 'ExitPromptError') {

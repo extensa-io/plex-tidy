@@ -1,9 +1,12 @@
 import type { Command } from 'commander';
 import type { Logger } from './logger.ts';
+import type { ProgressFactory } from './progress.ts';
 import type { Mode } from './state/schemas.ts';
 
 export interface CliContext {
   logger: Logger;
+  /** Live progress for long steps. Tests leave it out to stay quiet. */
+  progress?: ProgressFactory;
 }
 
 /** A command that stands alone, such as `doctor`. */
