@@ -1,0 +1,14 @@
+.assets
+
+# Private specs
+specs/
+
+# Runtime state and local settings
+state/
+config.json
+.env
+
+# Dependencies and tool output
+node_modules/
+coverage/
+*.log
