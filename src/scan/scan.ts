@@ -23,14 +23,39 @@ export function fileId(relativePath: string): string {
 export interface ScanOptions {
   /** Called after each video file is found, with the count so far. */
   onFile?: (count: number) => void;
+  /**
+   * A folder under the root. Only this folder is scanned, but paths stay
+   * relative to the root, so the folder itself can be renamed.
+   */
+  folder?: string;
+}
+
+/** The folder names between the root and `folder`, or an empty list for the whole root. */
+export function folderSegments(root: string, folder: string | undefined): string[] {
+  if (folder === undefined || folder.trim() === '') {
+    return [];
+  }
+  const absolute = win32.resolve(root, folder.trim());
+  const relative = win32.relative(win32.resolve(root), absolute);
+  if (relative === '' || relative.startsWith('..') || win32.isAbsolute(relative)) {
+    throw new AppError('OPTION_INVALID', '--folder must name a folder inside the root.');
+  }
+  return relative.split('\\').filter((segment) => segment !== '');
 }
 
 export async function scanRoot(root: string, options: ScanOptions = {}): Promise<Scan> {
   const absoluteRoot = win32.resolve(root);
   await requireDirectory(absoluteRoot);
+  const segments = folderSegments(absoluteRoot, options.folder);
+  const start = win32.join(absoluteRoot, ...segments);
+  if (segments.length > 0) {
+    await requireDirectory(start).catch(() => {
+      throw new AppError('OPTION_INVALID', '--folder must name a folder inside the root.');
+    });
+  }
 
   const files: ScanFile[] = [];
-  await walk(absoluteRoot, [], files, options.onFile);
+  await walk(start, segments, files, options.onFile);
   files.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()) || a.path.localeCompare(b.path));
 
   return {

@@ -4,7 +4,7 @@ A Windows command-line tool that cleans and renames video files and their subtit
 
 ## What it does
 
-plex-tidy has three modes that share one pipeline. `videos` cleans filenames for personal videos that have no database record and keeps only the title. `movies` and `tv` match files against The Movie Database (TMDB) and rename them into the Plex naming scheme. Every run is a dry run unless you pass `--yes`, every change is journaled, and every run can be undone. Renaming and tagging are separate commands.
+plex-tidy has three modes that share one pipeline. `videos` cleans filenames for personal videos that have no database record and keeps only the title. `movies` and `tv` match files against The Movie Database (TMDB) and rename them into the Plex naming scheme. Every run is a dry run unless you pass `--yes`, every change is journaled, and every run can be undone. Renaming and tagging are separate commands, and the guided `run` command offers the tagging as its last step.
 
 ## Stack
 
@@ -31,7 +31,7 @@ Fill in `.env` with your keys and `config.json` with your settings, then run `do
 npm run start -- videos run --root U:\Videos
 ```
 
-This one command does the whole job. It asks before each of three steps and stops if you answer No. Nothing changes on disk until you answer Yes to the last question. Work on a copy of your files the first time.
+This one command does the whole job. It asks before each of four steps (prepare, review, rename, tag) and stops if you answer No. Nothing changes on disk until you answer Yes to the rename question. Work on a copy of your files the first time.
 
 ### Command shape
 
@@ -40,7 +40,7 @@ npm run start -- <mode> <command> --root <path> [options]
 ```
 
 - `npm run start --` runs the tool. The `--` passes everything after it to plex-tidy instead of to npm.
-- `<mode>` is `videos` or `movies`. `tv` arrives in a later phase.
+- `<mode>` is `videos`, `movies`, or `tv`.
 - `<command>` is one of the commands below.
 
 ### Options
@@ -49,6 +49,7 @@ npm run start -- <mode> <command> --root <path> [options]
 | --- | --- | --- |
 | `--root <path>` | every mode command | The library folder to work on. Required. Nothing outside it is renamed. Give a copy of your files the first time. |
 | `--state-dir <path>` | every mode command | Where plans, journals, and caches go. The default is `stateDir` in `config.json`, which is `./state`. Use another folder to keep a separate set of state. |
+| `--folder <path>` | `scan`, `run` | Work on one folder under the root, for example `--root T:\ --folder Rome`. The root stays the boundary, so that folder itself can be renamed. The path is relative to the root, or absolute and inside it. |
 | `--yes` | `apply`, `tag`, `undo` | Make the changes. Without it, the command reports what it would do and changes nothing. |
 | `--only <kind>` | `undo` | `rename` undoes only renames. `tag` undoes only tags. Without it, `undo` reverses both, tags first. |
 | `--verbose` | any command | Prints debug lines. This is how a dry run shows the full list of old and new names, and how a refused `apply` lists the problems it found. Put it anywhere on the line. |
@@ -60,27 +61,28 @@ The `doctor` command takes no options.
 
 | Command | What it does | Changes files? | Calls the model? |
 | --- | --- | --- | --- |
-| `run` | The guided command: prepare, review, and rename, asking before each step. | Only after your final Yes | Yes, in step 1 |
+| `run` | The guided command: prepare, review, and rename, asking before each step. | Only after your Yes to the rename and tag questions | Yes, in step 1 |
 | `scan` | Lists the video and subtitle files under the root and counts the ones with no title in the name. | No | No |
 | `parse` | Asks the model for a title for each file. Answers are cached, so a second run costs nothing. | No | Yes |
 | `resolve` | Chooses the final title for each file, using the file name first and then a folder name. | No | No |
 | `plan` | Writes the list of renames and marks collisions. Decisions you made in review carry over. | No | No |
 | `review` | Shows the proposed names and lets you accept, edit, or skip each one. | No | No |
 | `apply` | Renames the approved files and their subtitles. A dry run unless you add `--yes`. | With `--yes` | No |
-| `tag` | Writes each renamed file's title into the file itself. Separate from `apply`, so you can check the renames in Plex first. A dry run unless you add `--yes`. | With `--yes` | No |
+| `tag` | Writes each renamed file's title and details into the file itself. It is also step 4 of `run`. Use the command on its own to tag later, for example after checking the renames in Plex. A dry run unless you add `--yes`. | With `--yes` | No |
 | `undo` | Puts the original names and tags back, newest first. A dry run unless you add `--yes`. Use `--only rename` or `--only tag` to undo one kind. | With `--yes` | No |
 | `status` | Shows which stages are done, the plan counts, and any unfinished journal lines. | No | No |
 | `doctor` | Checks the Node version, `config.json`, the external tools, and whether the keys are set. It never prints a key. | No | No |
 
-The stage commands run in this order: `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, and then `tag`. `run` does everything up to `apply`; tagging is always its own command. Use the single commands to resume after a stop, to redo one stage, or to look at one stage.
+The stage commands run in this order: `scan`, `parse`, `resolve`, `plan`, `review`, `apply`, and then `tag`. `run` does all of them in order, asking before each of the four steps. The single commands are also there for tagging later. Use the single commands to resume after a stop, to redo one stage, or to look at one stage.
 
 ### The guided command
 
-`run` asks three questions. Press Enter to take the default.
+`run` asks up to four questions. Press Enter to take the default.
 
 1. **Prepare** (default Yes). Runs `scan`, `parse`, `resolve`, and `plan` as one step. The model sees file names only, never paths. If you answer No and an earlier plan exists, the run continues from that plan.
 2. **Review** (default Yes). Asked only when entries wait for a decision. See the next section.
 3. **Rename** (default No). Asked only when something is approved. It shows how many renames and entries are involved. If you did not review in this run, it lists every rename first. A Yes here is your permission to change files.
+4. **Tag** (default Yes). Asked after the rename, when renamed files wait for tags. It says how many files are involved and how MKV and MP4 files are written. A Yes here is your permission to change the files' tags, and `undo --yes` puts the old tags back. Answer No to tag later with the `tag` command. If you run `run` again with nothing left to rename, it asks this question again for files that are renamed but not yet tagged.
 
 Press Ctrl+C at any question to stop. Every decision is saved as you make it.
 
@@ -134,9 +136,31 @@ What leaves the machine: the model sees base file names, never paths. TMDB sees 
 
 Run it on a copy of your files first. A second run on a library that is already organized produces a plan where every entry is `unchanged`.
 
+### TV mode
+
+```
+npm run start -- tv run --root T:\Shows
+```
+
+TV mode matches each show and episode to TMDB and moves the episodes into the Plex layout: `Show (Year) {tmdb-id}\Season 01\Show (Year) {tmdb-id} - s01e01 - Episode Title.mkv`. The commands are the same as in movies mode, and `scan`, `apply`, `tag`, and `undo` are shared. The rest differ:
+
+- **`parse`** reads the season and episode from each file name with a short list of rules: `s01e10`, `2x06`, `Season 2 Episode 6`, several episodes in one file (`s01e01e02`, `s01e01-e02`, `s01e01-02`), and names that carry only an episode number (`11 - Title`, `11.-.Title`, `Show - 11 - Title`, `episode 11`). A name no rule can read goes to the model in batches. The model only reports what is written in the name, and a season or episode number that is not written in the name is dropped.
+- **Shows.** Episodes that share a show folder are one show, and each show is searched on TMDB once. The folder name supplies the title, a year in brackets, and a `{tmdb-id}` tag when there is one. The show is scored on its name (0.8) and its first air year (0.2). A missing year counts as no contradiction, so two shows with the same name and no year are told apart by the judge or by you. The judge sees up to five base file names of the show and the candidates, never a folder name.
+- **Episodes.** The season and episode numbers are matched against the TMDB season listing in aired order, and the title from the listing names the file. A file with several episodes is named `s01e01-e02` and gets both titles joined with ` + `.
+- **Seasons.** The season comes from the file name, or from the `Season N` folder when the name has none. When both exist and differ, the entry is flagged and waits for review. An episode number with no season anywhere is taken as season 1, flagged, and never approved on its own. An episode that TMDB does not list waits for review.
+- **Approval.** An episode in a show that matched with a score at or above the threshold, with a season from the name or the folder, is approved on its own, with a reason that starts with `auto`. A show that matched only through the judge, an assumed season, a conflict, a collision, and a missing episode all wait. A show with no match on TMDB is `skipped` with the reason `unmatched`.
+- **`review`** first asks one question for each show that is not sure: pick a candidate, search TMDB by title, enter a TMDB id, or skip the whole show. That one decision applies to all of the show's episodes. Then it walks the episodes that still wait: accept, set the season and episode (type `s02e05`), or skip.
+- **`plan`** renames the show folder in place when every file in it is approved and the new name is free. The files move inside the old folder first (into a new `Season 01` folder that the tool creates), and the folder is renamed last, so a poster or a note in the folder goes along. When only some files are approved, or the new show folder already exists, the approved files move one by one into the new folders instead and the rest stay where they were. Subtitles travel with their video. Other files are never touched.
+- **`apply`** creates the folders it needs, writes each creation to the journal, and never overwrites a file. **`undo`** moves the files back, renames the show folder back, and removes only the folders the tool created, and only when they are empty. A folder that still holds files is kept and reported.
+- **`tag`** writes the episode title, the show, the season, the episode, the air date, the plot, the genres, and a TMDB reference such as `tv/1044`.
+
+The show folder uses the English TMDB name of the show. Season 0 is written `Season 00`, which Plex reads as the specials. Specials and other layouts that differ from the TMDB listing end up in review.
+
+What leaves the machine: the model sees base file names, never paths or folder names. TMDB sees show titles and years. Run it on a copy of your files first.
+
 ### Tagging
 
-`tag` writes the title into each renamed file, so players that read embedded metadata show the clean name too. Plex ignores these tags when it matches a file, which is why tagging is a separate step after `apply`: check the renames in Plex first, then tag. It only touches files that `apply` renamed.
+`tag` writes the title into each renamed file, so players that read embedded metadata show the clean name too. Plex ignores these tags when it matches a file. The guided `run` command asks about tagging as its last step, right after the rename (the default answer is Yes). You can also answer No there and run `tag` later, for example after checking the renames in Plex. It only touches files that `apply` renamed.
 
 How each container is handled, from a test on a real sample file of every type:
 
@@ -153,7 +177,7 @@ What `tag` does for each file:
 3. Reads the tags back and compares. For an MP4-family file this check runs twice, on the new copy and again on the uploaded copy, before the original is replaced. For a Matroska file the edit is in place, so on a mismatch the previous values are put back.
 4. Writes the `done` line. A file that fails the read-back is marked `tag-failed` and the command exits with code 1. The next run tries it again.
 
-Videos mode writes the title only. Movies mode writes the fuller record: original title, release date, synopsis, genre, director, actors, and a TMDB reference. The writers also handle the TV fields (show, season, episode, and air date) for a later phase. Fields an MP4 file has no place for, such as the original title, are skipped, and the skipped fields are recorded.
+Videos mode writes the title only. Movies mode writes the fuller record: original title, release date, synopsis, genre, director, actors, and a TMDB reference. TV mode writes the episode title, show, season, episode, air date, plot, genres, and a TMDB reference. Fields an MP4 file has no place for, such as the original title, are skipped, and the skipped fields are recorded.
 
 `undo` puts the previous tag values back, newest first, so tags unwind before the renames they followed. An MP4-family file is rewritten again to do that.
 
@@ -171,6 +195,7 @@ If a run is stopped partway, it can leave a hidden `.plex-tidy-tag.tmp` file nex
 - **Checked before the first rename.** `apply` checks every approved rename and refuses the whole plan if one has a problem: a path outside the root, another drive, a path over 259 characters, an illegal name, a missing source, a target that already exists, or two renames with the same target.
 - **Never overwrites, never deletes.** A name that already exists is a collision and goes to review.
 - **Journaled.** Every rename and every tag write puts an `intent` line in `journal.jsonl` before and a `done` line after. A tag line carries the previous values.
+- **Folders.** `apply` creates a folder only when it does not exist, and journals each one. `undo` removes a folder only when the tool created it and it is empty. It deletes nothing else.
 - **One exception to "never overwrite".** The only time a file is replaced is an MP4-family tag write, and only after the copy passed the read-back check.
 - **Interrupted runs.** When `apply` or `undo` starts, it compares unfinished journal lines with the real files and reports what it finds. A rename that finished gets its `done` line, so undo can reverse it.
 - **Undo.** `undo --yes` reverses the finished renames, newest first. It refuses to overwrite a file that now has the original name, and reports it. Undone entries return to approved, so the plan can run again.
@@ -192,7 +217,7 @@ Every stage saves its result, so you can stop and continue later.
 | Key | Needed by |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | `parse` and `run`, in `videos` and `movies`. In `movies`, `resolve` also needs it for the judge; without it the judge is skipped and those files go to review. |
-| `TMDB_READ_ACCESS_TOKEN` | `movies` `resolve`, `review`, and `run`. Use the long Read Access Token, not the short API Key. |
+| `TMDB_READ_ACCESS_TOKEN` | `movies` and `tv`: `resolve`, `review`, and `run`. Use the long Read Access Token, not the short API Key. |
 
 **`config.json`** holds the settings. `config.example.json` shows every key.
 
@@ -200,9 +225,9 @@ Every stage saves its result, so you can stop and continue later.
 | --- | --- | --- |
 | `stateDir` | `./state` | Where state files go. `--state-dir` overrides it. |
 | `models.parse` | none | The model that proposes titles. |
-| `models.judge` | none | The model for picking among TMDB matches, used by `movies` (and `tv` later). |
+| `models.judge` | none | The model for picking among TMDB matches, used by `movies` and `tv`. |
 | `parseBatchSize` | 50 | File names per model request. Allowed range is 50 to 100. |
-| `autoApplyThreshold` | 0.9 | The match score at which `movies` approves an entry on its own. Not used by `videos`. |
+| `autoApplyThreshold` | 0.9 | The match score at which `movies` and `tv` approve an entry on their own. Not used by `videos`. |
 | `tmdbConcurrency` | 4 | Parallel TMDB requests. Not used by `videos`. |
 | `tools.ffprobe`, `tools.mkvpropedit`, `tools.mkvextract`, `tools.exiftool` | found on `PATH`, then in the usual install folder | Full path to a tool that is in neither place. Used by `tag`, `undo`, and `doctor`. |
 
@@ -217,7 +242,7 @@ state/cache/parse-cache.json          model answers, shared by all roots
 state/cache/tmdb-cache.json           TMDB answers, shared by all roots (searches 7 days, movies 30 days)
 ```
 
-Movies mode keeps the same files under `state/movies/<root id>/`. Its `resolve.json` holds the parsed name, the probe, the scored candidates, and the choice for each file.
+Movies mode keeps the same files under `state/movies/<root id>/`. Its `resolve.json` holds the parsed name, the probe, the scored candidates, and the choice for each file. TV mode uses `state/tv/<root id>/`. Its `resolve.json` holds the shows (with their candidates and choice) and, for each file, the parsed name and the matched season and episode. The journal also records each folder the tool creates (`mkdir`), so `undo` can remove it.
 
 The root id is a short hash of the root path, so each folder keeps its own state. Plan statuses are `pending`, `approved`, `rejected`, `skipped`, `applied`, and `failed`. You can open any of these files, and `plan.json` is the one to read.
 
@@ -254,4 +279,4 @@ AGENTS.md   conventions, invariants, and build instructions
 
 ## Phases
 
-The build is staged across private phase specs: foundations, videos mode, tagging, movies, and TV. Phase 0 (foundations), Phase 1 (videos mode), and Phase 2 (tagging) are complete. Phase 3 (movies) is complete. Conventions and invariants live in `AGENTS.md`.
+The build is staged across private phase specs: foundations, videos mode, tagging, movies, and TV. Phase 0 (foundations), Phase 1 (videos mode), and Phase 2 (tagging) are complete. Phase 3 (movies) is complete. Phase 4 (TV) is complete. Conventions and invariants live in `AGENTS.md`.

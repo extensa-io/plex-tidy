@@ -1,6 +1,16 @@
 import { win32 } from 'node:path';
-import { RENAME_ACTION, UNDO_RENAME_ACTION, renameDataSchema, undoRenameDataSchema } from '../apply/reconcile.ts';
+import {
+  MKDIR_ACTION,
+  RENAME_ACTION,
+  UNDO_MKDIR_ACTION,
+  UNDO_RENAME_ACTION,
+  mkdirDataSchema,
+  renameDataSchema,
+  undoMkdirDataSchema,
+  undoRenameDataSchema,
+} from '../apply/reconcile.ts';
 import { isAppError } from '../errors.ts';
+import { removeEmptyFolder } from '../fs-win/safe-mkdir.ts';
 import { safeRename } from '../fs-win/safe-rename.ts';
 import type { Plan } from '../plan/schemas.ts';
 import type { Journal } from '../state/journal.ts';
@@ -42,7 +52,15 @@ export interface TagStep {
   written: TagSnapshot;
 }
 
-export type UndoStep = RenameStep | TagStep;
+export interface MkdirStep {
+  kind: 'mkdir';
+  intentId: string;
+  entryId: string;
+  /** The folder the tool created, relative to the root. It is removed only when it is empty. */
+  path: string;
+}
+
+export type UndoStep = RenameStep | TagStep | MkdirStep;
 
 /**
  * Finds the operations that finished (`done`) and have not been reversed,
@@ -69,7 +87,12 @@ export async function planUndo(journal: Journal, only?: UndoKind): Promise<UndoS
       if (data.success) {
         reversed.add(data.data.undoes);
       }
-    } else if (record.action === RENAME_ACTION || record.action === TAG_ACTION) {
+    } else if (record.action === UNDO_MKDIR_ACTION) {
+      const data = undoMkdirDataSchema.safeParse(record.data);
+      if (data.success) {
+        reversed.add(data.data.undoes);
+      }
+    } else if (record.action === RENAME_ACTION || record.action === TAG_ACTION || record.action === MKDIR_ACTION) {
       operations.push(record);
     }
   }
@@ -79,7 +102,12 @@ export async function planUndo(journal: Journal, only?: UndoKind): Promise<UndoS
     if (reversed.has(intent.id)) {
       continue;
     }
-    if (intent.action === RENAME_ACTION && only !== 'tag') {
+    if (intent.action === MKDIR_ACTION && only !== 'tag') {
+      const data = mkdirDataSchema.safeParse(intent.data);
+      if (data.success) {
+        steps.push({ kind: 'mkdir', intentId: intent.id, entryId: data.data.entryId, path: data.data.path });
+      }
+    } else if (intent.action === RENAME_ACTION && only !== 'tag') {
       const data = renameDataSchema.safeParse(intent.data);
       if (data.success) {
         steps.push({ kind: 'rename', intentId: intent.id, entryId: data.data.entryId, from: data.data.to, to: data.data.from });
@@ -109,6 +137,8 @@ export interface UndoOutcome {
   restoredRenames: Set<string>;
   /** Entries whose tags were put back. */
   restoredTags: Set<string>;
+  /** Folders the tool created that still hold something, so they were left in place. */
+  keptFolders: number;
 }
 
 export interface UndoDeps {
@@ -121,9 +151,21 @@ export interface UndoDeps {
 }
 
 export async function undoSteps(steps: readonly UndoStep[], deps: UndoDeps): Promise<UndoOutcome> {
-  const outcome: UndoOutcome = { restored: 0, failed: 0, restoredRenames: new Set(), restoredTags: new Set() };
+  const outcome: UndoOutcome = { restored: 0, failed: 0, restoredRenames: new Set(), restoredTags: new Set(), keptFolders: 0 };
   deps.onProgress?.(0, steps.length);
   for (const [index, step] of steps.entries()) {
+    if (step.kind === 'mkdir') {
+      const removed = await undoMkdir(step, deps);
+      if (removed === 'kept') {
+        outcome.keptFolders += 1;
+      } else if (removed === 'removed') {
+        outcome.restored += 1;
+      } else {
+        outcome.failed += 1;
+      }
+      deps.onProgress?.(index + 1, steps.length);
+      continue;
+    }
     const succeeded = step.kind === 'rename' ? await undoRename(step, deps) : await undoTag(step, deps);
     if (succeeded) {
       outcome.restored += 1;
@@ -134,6 +176,24 @@ export async function undoSteps(steps: readonly UndoStep[], deps: UndoDeps): Pro
     deps.onProgress?.(index + 1, steps.length);
   }
   return outcome;
+}
+
+/**
+ * Removes a folder the tool created, only when it is empty. A folder that
+ * holds something is kept and is not an error.
+ */
+async function undoMkdir(step: MkdirStep, deps: UndoDeps): Promise<'removed' | 'kept' | 'failed'> {
+  const intent = await deps.journal.appendIntent(UNDO_MKDIR_ACTION, { entryId: step.entryId, path: step.path, undoes: step.intentId });
+  try {
+    const removed = await removeEmptyFolder(deps.root, win32.resolve(deps.root, step.path));
+    await deps.journal.appendDone(intent);
+    return removed ? 'removed' : 'kept';
+  } catch (error) {
+    if (!isAppError(error)) {
+      throw error;
+    }
+    return 'failed';
+  }
 }
 
 async function undoRename(step: RenameStep, deps: UndoDeps): Promise<boolean> {

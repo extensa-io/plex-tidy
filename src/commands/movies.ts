@@ -20,7 +20,7 @@ import { createTmdbClient, type TmdbClient } from '../tmdb/client.ts';
 import { probeMedia } from '../tools/ffprobe.ts';
 import { guidedRun } from './guided.ts';
 import { parseMoviesStage, planMoviesStage, resolveMoviesStage, reviewMoviesStage, type ProbeVideo } from './movie-stages.ts';
-import { addRunOptions, createRunContext, type RunContext } from './shared.ts';
+import { addFolderOption, addRunOptions, createRunContext, type RunContext } from './shared.ts';
 import { logPlanSummary, scanStage } from './stages.ts';
 
 /** What the movies commands need from outside, so tests can replace the model, TMDB, the terminal, and config.json. */
@@ -79,12 +79,21 @@ const defaultDeps: MoviesDeps = {
 type Action = (run: RunContext, command: Command) => Promise<void>;
 
 export function createMoviesCommands(deps: MoviesDeps = defaultDeps): ModeCommand[] {
-  const modeCommand = (name: string, description: string, withYes: boolean, action: Action): ModeCommand => ({
+  const modeCommand = (
+    name: string,
+    description: string,
+    withYes: boolean,
+    action: Action,
+    withOnly = false,
+  ): ModeCommand => ({
     name,
     description,
     modes: ['movies'],
     register: (command: Command, mode: Mode, cli: CliContext) => {
       addRunOptions(command, withYes);
+      if (withOnly) {
+        addFolderOption(command);
+      }
       command.action(async () => {
         await action(await createRunContext(command, mode, cli, deps.loadConfig), command);
       });
@@ -139,7 +148,7 @@ export function createMoviesCommands(deps: MoviesDeps = defaultDeps): ModeComman
       io,
       createBackends: deps.createBackends,
       prepareQuestion:
-        'Step 1 of 3, prepare: scan the folder, find each movie on TMDB, and build the rename plan.\n  The model sees file names only, never paths. TMDB sees titles and years. No file changes. Run it now?',
+        'Step 1 of 4, prepare: scan the folder, find each movie on TMDB, and build the rename plan.\n  The model sees file names only, never paths. TMDB sees titles and years. No file changes. Run it now?',
       prepare: async (current) => {
         await scanStage(current);
         await parseMoviesStage(current, deps.createParseModel(current));
@@ -152,7 +161,7 @@ export function createMoviesCommands(deps: MoviesDeps = defaultDeps): ModeComman
       },
       review: async (current, reviewIO) => reviewMoviesStage(current, reviewIO, await tmdbFor(current)),
     });
-  });
+  }, true);
 
   return [runCommand, parseCommand, resolveCommand, planCommand, reviewCommand, statusCommand];
 }

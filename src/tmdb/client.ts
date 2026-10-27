@@ -5,11 +5,20 @@ import {
   TMDB_CACHE_SCHEMA_VERSION,
   detailsResponseSchema,
   searchResponseSchema,
+  seasonResponseSchema,
+  showDetailsResponseSchema,
+  showSearchResponseSchema,
   tmdbCacheSchema,
   toDetails,
+  toEpisodes,
   toHit,
+  toShowDetails,
+  toShowHit,
+  type EpisodeInfo,
   type MovieDetails,
   type MovieHit,
+  type ShowDetails,
+  type ShowHit,
   type TmdbCacheFile,
 } from './schemas.ts';
 
@@ -33,6 +42,12 @@ export interface TmdbClient {
   searchMovies(query: SearchQuery): Promise<MovieHit[]>;
   /** Returns undefined when TMDB has no movie with this id. */
   movieDetails(id: number): Promise<MovieDetails | undefined>;
+  /** Searches TV shows. `year` is the first air year. */
+  searchShows(query: SearchQuery): Promise<ShowHit[]>;
+  /** Returns undefined when TMDB has no show with this id. */
+  showDetails(id: number): Promise<ShowDetails | undefined>;
+  /** The episodes of one season in aired order, or undefined when TMDB has no such season. */
+  seasonEpisodes(showId: number, season: number): Promise<EpisodeInfo[] | undefined>;
   /** Writes the cache to disk when something changed. */
   save(): Promise<void>;
   stats(): TmdbStats;
@@ -60,7 +75,14 @@ export async function createTmdbClient(options: TmdbClientOptions): Promise<Tmdb
   const sleep = options.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
   const limit = pLimit(options.concurrency);
   const stored = options.cacheFile === undefined ? undefined : await readJsonFile(options.cacheFile, tmdbCacheSchema);
-  const cache: TmdbCacheFile = stored ?? { schemaVersion: TMDB_CACHE_SCHEMA_VERSION, searches: {}, movies: {} };
+  const cache: TmdbCacheFile = stored ?? {
+    schemaVersion: TMDB_CACHE_SCHEMA_VERSION,
+    searches: {},
+    movies: {},
+    showSearches: {},
+    shows: {},
+    seasons: {},
+  };
   const stats: TmdbStats = { requests: 0, cacheHits: 0 };
   let dirty = false;
 
@@ -159,6 +181,78 @@ export async function createTmdbClient(options: TmdbClientOptions): Promise<Tmdb
         cache.movies[key] = { cachedAt: now().toISOString(), details: details ?? null };
         dirty = true;
         return details;
+      });
+    },
+
+    searchShows: ({ query, year, language = 'en-US' }) => {
+      const key = JSON.stringify([query.toLowerCase(), year ?? null, language]);
+      const hit = cache.showSearches[key];
+      if (hit !== undefined && fresh(hit.cachedAt, SEARCH_TTL_MS)) {
+        stats.cacheHits += 1;
+        return Promise.resolve(hit.hits);
+      }
+      return limit(async () => {
+        const raw = await get('/search/tv', {
+          query,
+          language,
+          include_adult: 'false',
+          page: '1',
+          ...(year === null || year === undefined ? {} : { first_air_date_year: String(year) }),
+        });
+        const parsed = showSearchResponseSchema.safeParse(raw);
+        if (!parsed.success) {
+          throw new AppError('TMDB_FAILED', 'TMDB returned a show search response in an unexpected shape.', { cause: parsed.error });
+        }
+        const hits = parsed.data.results.map(toShowHit);
+        cache.showSearches[key] = { cachedAt: now().toISOString(), hits };
+        dirty = true;
+        return hits;
+      });
+    },
+
+    showDetails: (id) => {
+      const key = String(id);
+      const hit = cache.shows[key];
+      if (hit !== undefined && fresh(hit.cachedAt, DETAILS_TTL_MS)) {
+        stats.cacheHits += 1;
+        return Promise.resolve(hit.details ?? undefined);
+      }
+      return limit(async () => {
+        const raw = await get(`/tv/${id}`, { language: 'en-US' });
+        let details: ShowDetails | undefined;
+        if (raw !== undefined) {
+          const parsed = showDetailsResponseSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new AppError('TMDB_FAILED', 'TMDB returned a show in an unexpected shape.', { cause: parsed.error });
+          }
+          details = toShowDetails(parsed.data);
+        }
+        cache.shows[key] = { cachedAt: now().toISOString(), details: details ?? null };
+        dirty = true;
+        return details;
+      });
+    },
+
+    seasonEpisodes: (showId, season) => {
+      const key = `${showId}/${season}`;
+      const hit = cache.seasons[key];
+      if (hit !== undefined && fresh(hit.cachedAt, DETAILS_TTL_MS)) {
+        stats.cacheHits += 1;
+        return Promise.resolve(hit.episodes ?? undefined);
+      }
+      return limit(async () => {
+        const raw = await get(`/tv/${showId}/season/${season}`, { language: 'en-US' });
+        let episodes: EpisodeInfo[] | undefined;
+        if (raw !== undefined) {
+          const parsed = seasonResponseSchema.safeParse(raw);
+          if (!parsed.success) {
+            throw new AppError('TMDB_FAILED', 'TMDB returned a season in an unexpected shape.', { cause: parsed.error });
+          }
+          episodes = toEpisodes(parsed.data);
+        }
+        cache.seasons[key] = { cachedAt: now().toISOString(), episodes: episodes ?? null };
+        dirty = true;
+        return episodes;
       });
     },
 

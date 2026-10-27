@@ -165,6 +165,106 @@ describe('TMDB client', () => {
     expect(again.stats()).toEqual({ requests: 0, cacheHits: 1 });
   });
 
+  describe('TV', () => {
+    const show = {
+      id: 5,
+      name: 'Sample Show',
+      original_name: 'Sample Original',
+      first_air_date: '2005-03-02',
+      overview: ' A plot. ',
+      genres: [{ id: 1, name: 'Drama' }],
+      number_of_episodes: 20,
+      seasons: [
+        { season_number: 0, episode_count: 2 },
+        { season_number: 1, episode_count: 10 },
+        { season_number: 2, episode_count: 8 },
+      ],
+    };
+
+    it('searches shows with the first air year', async () => {
+      const { calls, fetch } = stubFetch(() =>
+        json({ results: [{ id: 5, name: 'Sample Show', original_name: 'Sample Show', first_air_date: '2005-03-02', popularity: 4 }] }),
+      );
+      const client = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch });
+
+      expect(await client.searchShows({ query: 'Sample Show', year: 2005 })).toEqual([
+        { id: 5, name: 'Sample Show', originalName: 'Sample Show', year: 2005, popularity: 4 },
+      ]);
+      expect(calls[0]?.url.pathname).toBe('/3/search/tv');
+      expect(Object.fromEntries(calls[0]?.url.searchParams.entries() ?? [])).toMatchObject({
+        query: 'Sample Show',
+        first_air_date_year: '2005',
+        include_adult: 'false',
+      });
+    });
+
+    it('reduces the show details to what the tool keeps', async () => {
+      const { fetch } = stubFetch(() => json(show));
+      const client = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch });
+      expect(await client.showDetails(5)).toEqual({
+        id: 5,
+        name: 'Sample Show',
+        originalName: 'Sample Original',
+        firstAirDate: '2005-03-02',
+        year: 2005,
+        overview: 'A plot.',
+        genres: ['Drama'],
+        seasons: [
+          { season: 0, episodes: 2 },
+          { season: 1, episodes: 10 },
+          { season: 2, episodes: 8 },
+        ],
+        episodeCount: 20,
+        altNames: [],
+      });
+    });
+
+    it('lists the episodes of a season in aired order', async () => {
+      const { calls, fetch } = stubFetch(() =>
+        json({
+          episodes: [
+            { episode_number: 2, name: 'Second', air_date: '2005-03-09', overview: 'Two.' },
+            { episode_number: 1, name: ' First ', air_date: '', overview: null },
+          ],
+        }),
+      );
+      const client = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch });
+      expect(await client.seasonEpisodes(5, 1)).toEqual([
+        { number: 1, name: 'First', airDate: null, overview: '' },
+        { number: 2, name: 'Second', airDate: '2005-03-09', overview: 'Two.' },
+      ]);
+      expect(calls[0]?.url.pathname).toBe('/3/tv/5/season/1');
+    });
+
+    it('returns undefined for a show or a season TMDB does not have, and remembers it', async () => {
+      const { calls, fetch } = stubFetch(() => json({ status_code: 34 }, 404));
+      const client = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch });
+      expect(await client.showDetails(1)).toBeUndefined();
+      expect(await client.seasonEpisodes(1, 9)).toBeUndefined();
+      expect(await client.seasonEpisodes(1, 9)).toBeUndefined();
+      expect(calls).toHaveLength(2);
+    });
+
+    it('keeps TV answers in the cache file, and still reads a cache written before TV support', async () => {
+      const cacheFile = join(await makeTempDir(), 'tmdb-cache.json');
+      const first = stubFetch(() => json(show));
+      const client = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch: first.fetch, cacheFile });
+      await client.showDetails(5);
+      await client.save();
+
+      const second = stubFetch(() => json({}, 500));
+      const again = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch: second.fetch, cacheFile });
+      expect((await again.showDetails(5))?.name).toBe('Sample Show');
+      expect(second.calls).toHaveLength(0);
+
+      const oldFile = join(await makeTempDir(), 'old-cache.json');
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(oldFile, JSON.stringify({ schemaVersion: 1, searches: {}, movies: {} }));
+      const old = await createTmdbClient({ token: 'a.b.c', concurrency: 1, fetch: first.fetch, cacheFile: oldFile });
+      expect((await old.showDetails(5))?.id).toBe(5);
+    });
+  });
+
   it('asks again when a cached answer is too old', async () => {
     const cacheFile = join(await makeTempDir(), 'tmdb-cache.json');
     const first = stubFetch(() => json(details));

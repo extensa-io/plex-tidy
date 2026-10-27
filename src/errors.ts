@@ -26,6 +26,7 @@ export const errorCodes = [
   'TAG_NO_SPACE',
   'TAG_UNSUPPORTED',
   'TMDB_FAILED',
+  'MKDIR_FAILED',
 ] as const;
 
 export type ErrorCode = (typeof errorCodes)[number];

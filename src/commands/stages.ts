@@ -1,6 +1,7 @@
-import { applyPlan, approvedEntries, movesFor, preflight, requireNoProblems, type Move } from '../apply/apply.ts';
+import { applyPlan, movesOf, preflight, requireNoProblems, type Move } from '../apply/apply.ts';
 import { rm } from 'node:fs/promises';
-import { composeCheckers, reconcileJournal, renameChecker, type ReconcileSummary } from '../apply/reconcile.ts';
+import { planOperations, type Operation } from '../apply/operations.ts';
+import { composeCheckers, mkdirChecker, reconcileJournal, renameChecker, type ReconcileSummary } from '../apply/reconcile.ts';
 import { AppError } from '../errors.ts';
 import type { TitleModel } from '../llm/model-client.ts';
 import { loadParseCache } from '../llm/title-parser.ts';
@@ -23,7 +24,10 @@ import { pathExists, requireDirectory, requireState, type RunContext } from './s
 
 export async function scanStage(run: RunContext): Promise<void> {
   const task = run.progress('scanning (video files found)');
-  const scan = await scanRoot(run.root, { onFile: (count) => { task.update(count); } });
+  const scan = await scanRoot(run.root, {
+    onFile: (count) => { task.update(count); },
+    ...(run.folder === undefined ? {} : { folder: run.folder }),
+  });
   task.done();
   await writeJsonFile(run.paths.scan, scanSchema, scan);
   const summary = summarizeScan(scan);
@@ -123,6 +127,9 @@ export async function reviewStage(run: RunContext, io: ReviewIO): Promise<Review
 export interface ApplyPrep {
   plan: Plan;
   journal: Journal;
+  /** Every folder to create and every rename, in the order they run. */
+  operations: Operation[];
+  /** The renames among the operations. */
   moves: Move[];
 }
 
@@ -147,7 +154,8 @@ export async function prepareApply(run: RunContext, backends: Backends): Promise
     run.logger.debug(`  ${problem.entryId}: ${problem.message}`);
   }
   requireNoProblems(problems);
-  return { plan, journal, moves: approvedEntries(plan).flatMap(movesFor) };
+  const operations = planOperations(plan);
+  return { plan, journal, operations, moves: movesOf(operations) };
 }
 
 /** Renames the approved files. The caller has already got the owner's consent. */
@@ -162,7 +170,8 @@ export async function executeApply(run: RunContext, prep: ApplyPrep, backends: B
   });
   task.done();
   await writeJsonFile(run.paths.plan, planSchema, updated);
-  run.logger.info(`applied ${outcome.applied} entries (${outcome.renames} renames); ${outcome.failed} failed`);
+  const folders = outcome.folders > 0 ? `, ${outcome.folders} folders created` : '';
+  run.logger.info(`applied ${outcome.applied} entries (${outcome.renames} renames${folders}); ${outcome.failed} failed`);
   if (outcome.failed > 0) {
     process.exitCode = 1;
   }
@@ -170,7 +179,7 @@ export async function executeApply(run: RunContext, prep: ApplyPrep, backends: B
 
 /** Checks unfinished journal lines of every kind against the real files. */
 export function journalCheck(root: string, backends: Backends) {
-  return composeCheckers(renameChecker(root, pathExists), tagChecker(root, backends));
+  return composeCheckers(renameChecker(root, pathExists), mkdirChecker(root, pathExists), tagChecker(root, backends));
 }
 
 /**

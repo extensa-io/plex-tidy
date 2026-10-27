@@ -25,9 +25,14 @@ export interface TagCandidate {
   skippedFields: SkippedField[];
 }
 
-/** An entry is ready to tag after it was renamed. A failed tag is tried again. */
+/**
+ * An entry is ready to tag after it was renamed, or when its name was already
+ * correct, as in a re-run over files renamed earlier. A failed tag is tried
+ * again. Files whose tags already match are counted as already correct.
+ */
 export function isTaggable(entry: PlanEntry): boolean {
-  return entry.status === 'applied' && (entry.tagStatus === 'untagged' || entry.tagStatus === 'tag-failed');
+  const placed = entry.status === 'applied' || (entry.status === 'skipped' && entry.reason === 'unchanged');
+  return placed && (entry.tagStatus === 'untagged' || entry.tagStatus === 'tag-failed');
 }
 
 /** Reads the current tags of every taggable entry and decides what to do. Changes nothing. */

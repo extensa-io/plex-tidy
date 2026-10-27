@@ -1,4 +1,4 @@
-import { readFile, rename, writeFile } from 'node:fs/promises';
+﻿import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { applyPlan, movesFor, preflight, requireNoProblems } from '../../src/apply/apply.ts';
@@ -116,7 +116,7 @@ describe('applyPlan and undo', () => {
     const { outcome, plan: updated } = await applyPlan(plan, { root, journal, save });
 
     const after = await listTree(root);
-    expect(outcome).toEqual({ applied: 8, failed: 0, renames: 11 });
+    expect(outcome).toEqual({ applied: 8, failed: 0, renames: 11, folders: 0 });
     expect(after).toContain('Family Clips\\Sample Film One 02.en.srt');
     expect(after).toContain('Family Clips\\Sample Film One 02.es.forced.srt');
     expect(after).toContain('Trips\\Beach Day\\Beach Day 01.mov');

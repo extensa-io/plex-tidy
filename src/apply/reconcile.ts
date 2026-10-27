@@ -6,6 +6,19 @@ import type { JournalIntent } from '../state/schemas.ts';
 
 export const RENAME_ACTION = 'rename';
 export const UNDO_RENAME_ACTION = 'undo-rename';
+export const MKDIR_ACTION = 'mkdir';
+export const UNDO_MKDIR_ACTION = 'undo-mkdir';
+
+export const mkdirDataSchema = z.object({
+  entryId: z.string().min(1),
+  /** Relative to the root. */
+  path: z.string().min(1),
+});
+
+export const undoMkdirDataSchema = mkdirDataSchema.extend({
+  /** The id of the journal intent that this undo reverses. */
+  undoes: z.uuid(),
+});
 
 export const renameDataSchema = z.object({
   entryId: z.string().min(1),
@@ -50,6 +63,20 @@ export function renameChecker(root: string, exists: PathExists): IntentChecker {
       return 'completed';
     }
     return fromExists && !toExists ? 'not-started' : 'unknown';
+  };
+}
+
+/** Checks `mkdir` intents: the folder is there, or it is not. */
+export function mkdirChecker(root: string, exists: PathExists): IntentChecker {
+  return async (intent) => {
+    if (intent.action !== MKDIR_ACTION) {
+      return undefined;
+    }
+    const data = mkdirDataSchema.safeParse(intent.data);
+    if (!data.success) {
+      return 'unknown';
+    }
+    return (await exists(win32.join(root, data.data.path))) ? 'completed' : 'not-started';
   };
 }
 

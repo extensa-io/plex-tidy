@@ -19,7 +19,7 @@ import { createBackends, type Backends } from '../tag/backends.ts';
 import { createToolLocator, realRunner } from '../tag/runner.ts';
 import { markUndone, planUndo, undoSteps } from '../undo/undo.ts';
 import { guidedRun } from './guided.ts';
-import { addRunOptions, createRunContext, requireDirectory, requireState, type RunContext } from './shared.ts';
+import { addFolderOption, addRunOptions, createRunContext, requireDirectory, requireState, type RunContext } from './shared.ts';
 import {
   executeApply,
   journalCheck,
@@ -76,15 +76,17 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     },
   });
 
-  // These commands work the same in videos and movies mode: they read the plan, not the titles.
-  const sharedModes: readonly Mode[] = ['videos', 'movies'];
+  // These commands work the same in every mode: they read the plan, not the titles.
+  const sharedModes: readonly Mode[] = ['videos', 'movies', 'tv'];
 
   const scanCommand = modeCommand(
     'scan',
     'list video files and subtitle files under the root',
     false,
     scanStage,
-    undefined,
+    (command) => {
+      addFolderOption(command);
+    },
     sharedModes,
   );
 
@@ -108,6 +110,10 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
     const prep = await prepareApply(run, backends);
     if (!run.yes) {
       run.logger.list('renames that would happen', prep.moves.map((move) => `${move.from} -> ${move.to}`));
+      const folders = prep.operations.flatMap((operation) => (operation.kind === 'mkdir' ? [operation.path] : []));
+      if (folders.length > 0) {
+        run.logger.list('folders that would be created', folders);
+      }
       run.logger.info('dry run: nothing was changed. Add --yes to rename.');
       return;
     }
@@ -152,7 +158,12 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
       if (!run.yes) {
         run.logger.list(
           'operations that would be reversed',
-          steps.map((step) => (step.kind === 'rename' ? `rename ${step.from} -> ${step.to}` : `tags of ${step.path}`)),
+          steps.map((step) => {
+            if (step.kind === 'rename') {
+              return `rename ${step.from} -> ${step.to}`;
+            }
+            return step.kind === 'mkdir' ? `remove the folder ${step.path} if it is empty` : `tags of ${step.path}`;
+          }),
         );
         run.logger.info('dry run: nothing was changed. Add --yes to undo.');
         return;
@@ -170,7 +181,8 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
       if (plan !== undefined) {
         await writeJsonFile(run.paths.plan, planSchema, markUndone(plan, outcome.restoredRenames, outcome.restoredTags));
       }
-      run.logger.info(`undid ${outcome.restored} operations; ${outcome.failed} could not be undone`);
+      const kept = outcome.keptFolders > 0 ? `; ${outcome.keptFolders} folders still hold files and were kept` : '';
+      run.logger.info(`undid ${outcome.restored} operations; ${outcome.failed} could not be undone${kept}`);
       if (outcome.failed > 0) {
         process.exitCode = 1;
       }
@@ -205,7 +217,7 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
       io: deps.createReviewIO(),
       createBackends: deps.createBackends,
       prepareQuestion:
-        'Step 1 of 3, prepare: scan the folder, ask the model for titles, and build the rename plan.\n  The model sees file names only, never paths, and no file changes. Run it now?',
+        'Step 1 of 4, prepare: scan the folder, ask the model for titles, and build the rename plan.\n  The model sees file names only, never paths, and no file changes. Run it now?',
       prepare: async (current) => {
         await scanStage(current);
         await parseStage(current, deps.createTitleModel(current));
@@ -214,6 +226,8 @@ export function createVideosCommands(deps: VideosDeps = defaultDeps): ModeComman
       },
       review: reviewStage,
     });
+  }, (command) => {
+    addFolderOption(command);
   });
 
   return [

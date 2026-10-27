@@ -28,6 +28,12 @@ export const parseCacheEntrySchema = z.object({
   edition: z.string().nullable().optional(),
   language: z.string().nullable().optional(),
   part: z.string().nullable().optional(),
+  // TV mode fields.
+  show: z.string().nullable().optional(),
+  season: z.number().int().nullable().optional(),
+  episode: z.number().int().nullable().optional(),
+  episodeEnd: z.number().int().nullable().optional(),
+  episodeTitle: z.string().nullable().optional(),
 });
 export type ParseCacheEntry = z.infer<typeof parseCacheEntrySchema>;
 

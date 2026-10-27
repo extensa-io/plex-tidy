@@ -14,6 +14,7 @@ import { silentProgress, type ProgressFactory } from '../progress.ts';
 
 const runOptionsSchema = z.object({
   root: z.string().trim().min(1),
+  folder: z.string().trim().min(1).optional(),
   stateDir: z.string().trim().min(1).optional(),
   yes: z.boolean().default(false),
 });
@@ -25,11 +26,18 @@ export function addRunOptions(command: Command, withYes: boolean): Command {
   return withYes ? command.option('--yes', 'make the changes; without it the command only reports') : command;
 }
 
+/** The `--folder` option of `scan` and `run`: work on one folder under the root. */
+export function addFolderOption(command: Command): Command {
+  return command.option('--folder <path>', 'scan only this folder under the root; the root stays the boundary');
+}
+
 export interface RunContext {
   mode: Mode;
   config: Config;
   /** Absolute library root. */
   root: string;
+  /** A folder under the root to scan, or undefined for the whole root. */
+  folder?: string;
   yes: boolean;
   paths: RootStatePaths;
   caches: CachePaths;
@@ -55,6 +63,7 @@ export async function createRunContext(
     mode,
     config,
     root,
+    ...(options.data.folder === undefined ? {} : { folder: options.data.folder }),
     yes: options.data.yes,
     paths: rootStatePaths(stateDir, mode, root),
     caches: cachePaths(stateDir),

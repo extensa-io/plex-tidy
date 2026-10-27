@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { buildProgram, commandRegistry, type CommandRegistry } from '../src/cli.ts';
 import { createLogger } from '../src/logger.ts';
 
@@ -7,7 +7,7 @@ const context = { logger: createLogger({ secrets: [], write: () => undefined }) 
 describe('buildProgram', () => {
   it('registers doctor and the videos and movies modes', () => {
     const program = buildProgram(context);
-    expect(program.commands.map((command) => command.name())).toEqual(['doctor', 'videos', 'movies']);
+    expect(program.commands.map((command) => command.name())).toEqual(['doctor', 'videos', 'movies', 'tv']);
   });
 
   it('registers every movies command, sharing scan, apply, tag, and undo with videos', () => {
@@ -33,8 +33,8 @@ describe('buildProgram', () => {
     ]);
     const optionNames = (name: string) =>
       videos?.commands.find((command) => command.name() === name)?.options.map((option) => option.long);
-    expect(optionNames('scan')).toEqual(['--root', '--state-dir']);
-    expect(optionNames('run')).toEqual(['--root', '--state-dir']);
+    expect(optionNames('scan')).toEqual(['--root', '--state-dir', '--folder']);
+    expect(optionNames('run')).toEqual(['--root', '--state-dir', '--folder']);
     expect(optionNames('apply')).toEqual(['--root', '--state-dir', '--yes']);
     expect(optionNames('tag')).toEqual(['--root', '--state-dir', '--yes']);
     expect(optionNames('undo')).toEqual(['--root', '--state-dir', '--yes', '--only']);
